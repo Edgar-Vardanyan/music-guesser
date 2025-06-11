@@ -60,7 +60,7 @@ export class SocketService {
   connect(): void {
     // IMPORTANT: REPLACE THIS URL with the actual public URL of your deployed Node.js backend.
     // Example: this.socket = io('https://your-music-guesser-backend.onrender.com');
-    this.socket = io('https://YOUR_RENDER_BACKEND_URL_HERE'); 
+    this.socket = io('https://music-guesser-backend-whu4.onrender.com'); 
   }
 
   // Emits 'join-room' event to server
