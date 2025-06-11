@@ -1,1 +1,28 @@
-/* You can add global styles to this file, and also import other style files */
+body {
+  font-family: 'Inter', sans-serif;
+}
+/* Custom scrollbar for chat display */
+#chat-display::-webkit-scrollbar {
+  width: 8px;
+}
+#chat-display::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+#chat-display::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 10px;
+}
+#chat-display::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+/* Style for blurred text */
+.blur-text {
+  filter: blur(4px); /* Adjust blur strength as needed */
+  transition: filter 0.3s ease-in-out;
+}
+/* Style for revealed text */
+.reveal-text {
+  filter: blur(0px);
+  transition: filter 0.3s ease-in-out;
+}

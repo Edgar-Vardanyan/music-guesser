@@ -1,12 +1,10 @@
 import { Component } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { MusicGuesserComponent } from './music-guesser/music-guesser.component';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet],
-  templateUrl: './app.component.html',
-  styleUrl: './app.component.scss'
+  standalone: true,
+  imports: [MusicGuesserComponent],
+  template: `<app-music-guesser></app-music-guesser>`,
 })
-export class AppComponent {
-  title = 'music-guess';
-}
+export class AppComponent {}
