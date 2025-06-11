@@ -44,20 +44,20 @@ export class MusicGuesserComponent implements OnDestroy {
   currentMusicUrl = signal('');
   currentTurnId = signal(''); // ID of the player whose turn it is
   currentMusicStartTime = signal(0); // Start time for the current YouTube video
+  private turnEndTime: number = 0; // Server-provided timestamp for when the current turn ends
 
   // Chat functionality
   chatInput = ''; // Input field for chat messages
   chatMessages = signal<ChatMessage[]>([]); // Array to store chat history
 
-  // Signals for displaying revealed song info (blurred or revealed for previous turn)
-  currentDisplayTitle = signal<string | null>(null); // To display blurred '???' or revealed title
-  currentDisplayArtist = signal<string | null>(null); // To display blurred '???' or revealed artist
-
   // Internal variables to hold the actual correct song details for the *current* playing turn
-  // These will be used to reveal the answer when the *next* turn starts.
-  private actualCurrentTurnSongTitle: string | null = null;
-  private actualCurrentTurnSongArtist: string | null = null;
+  // These will be used for revelation at the *next* turn change or game end.
+  private _actualTitle: string | null = null;
+  private _actualArtist: string | null = null;
 
+  // Signals for displaying the progressively revealed song info (underscores + letters)
+  revealedTitle = signal<string>('');
+  revealedArtist = signal<string>('');
 
   scores = signal<{nickname: string, score: number}[]>([]); // Final scores at game end
 
@@ -71,15 +71,25 @@ export class MusicGuesserComponent implements OnDestroy {
   private pendingStartTime: number = 0; // Start time for the pending video
 
   // Turn timer
-  private timeLeft = 30; // Seconds left in current turn
-  private timerInterval: any; // Interval ID for the timer
+  private timeLeft = 30; // Seconds left in current turn, now updated from server
+  private timerInterval: any; // Interval ID for the main turn timer
+
+  // NEW: Turn duration setting for host
+  turnDuration = signal(30); // Default turn duration, can be changed by host (10-120s)
+
+  // Timer for revealing letters
+  private revealLetterInterval: any; // Interval ID for the letter revelation timer
+  private _totalRevealableLetters: number = 0; // Total alphabetic characters that can be revealed
+  private _revealedLetterCount: number = 0; // Count of letters revealed so far this turn
+  private readonly REVEAL_STOP_PERCENTAGE = 0.8; // Stop revealing when 80% of letters are shown
 
   constructor(public socketService: SocketService) {
     // Effect to react to changes in gameEnded signal for debugging and immediate UI/timer actions
     effect(() => {
       console.log(`[FRONTEND] Effect: gameEnded signal changed to: ${this.gameEnded()}.`);
       if (this.gameEnded()) {
-        this.clearTimer(); // Stop any active timer
+        this.clearTimer(); // Stop any active main timer
+        this.clearRevealTimer(); // Stop any active reveal timer
         if (this.player) {
           this.player.stopVideo(); // Stop any music playing
         }
@@ -87,7 +97,7 @@ export class MusicGuesserComponent implements OnDestroy {
       }
     });
 
-    // NEW: Effect to control YouTube player volume
+    // Effect to control YouTube player volume
     effect(() => {
       const volume = this.volumeControl(); // Get the current volume from the signal
       if (this.playerReady && this.player && typeof this.player.setVolume === 'function') {
@@ -108,52 +118,59 @@ export class MusicGuesserComponent implements OnDestroy {
     });
 
     // Subscribe to game started event from the server
-    this.socketService.onGameStarted().subscribe(({ turnQueue }) => {
-      console.log('[FRONTEND] Game Started event received. Turn queue:', turnQueue);
+    this.socketService.onGameStarted().subscribe((data) => { // Data now includes turnDuration
+      console.log('[FRONTEND] Game Started event received. Turn queue:', data.turnQueue, 'Turn duration:', data.turnDuration);
       this.gameStarted.set(true);
       this.gameEnded.set(false);   // Game has just started, so it's not ended
       this.chatMessages.set([]);  // Clear chat history for new game
       this.message.set(null);     // Clear any messages
-      this.startTimer();          // Start the turn timer
+      this.turnDuration.set(data.turnDuration); // Set turn duration from server
+      // Server will now send turnEndTime with first turn-changed, so no need to start timer here
       
-      // Reset displayed title/artist at game start to blurred '???'
-      this.currentDisplayTitle.set(null); 
-      this.currentDisplayArtist.set(null);
-      this.actualCurrentTurnSongTitle = null; // Also clear internal storage
-      this.actualCurrentTurnSongArtist = null; // Also clear internal storage
+      // Reset all song revelation states at game start
+      this._actualTitle = null;
+      this._actualArtist = null;
+      this.revealedTitle.set('');
+      this.revealedArtist.set('');
+      this.clearRevealTimer();
+      this._totalRevealableLetters = 0;
+      this._revealedLetterCount = 0;
     });
 
     // Subscribe to turn changed event from the server
     this.socketService.onTurnChanged().subscribe((data) => {
       console.log('[FRONTEND] onTurnChanged: Raw data received from server:', data);
-      const { currentPlayerId, currentPlayerNickname, currentMusicUrl, currentMusicStartTime, songTitle, songArtist } = data;
+      const { currentPlayerId, currentPlayerNickname, currentMusicUrl, currentMusicStartTime, songTitle, songArtist, turnEndTime } = data;
 
       // === REVEAL LOGIC FOR PREVIOUS TURN'S SONG ===
       // If there was a song playing in the previous turn, reveal its details now.
-      if (this.actualCurrentTurnSongTitle !== null || this.actualCurrentTurnSongArtist !== null) { 
-        console.log(`[FRONTEND] Revealing previous song. Title: "${this.actualCurrentTurnSongTitle}", Artist: "${this.actualCurrentTurnSongArtist}"`);
-        this.currentDisplayTitle.set(this.actualCurrentTurnSongTitle);
-        this.currentDisplayArtist.set(this.actualCurrentTurnSongArtist);
+      if (this._actualTitle !== null || this._actualArtist !== null) { 
+        console.log(`[FRONTEND] Revealing previous song. Title: "${this._actualTitle}", Artist: "${this._actualArtist}"`);
+        // Force full reveal of the previous song's details in the display
+        this.revealedTitle.set(this._actualTitle || 'Unknown Title');
+        this.revealedArtist.set(this._actualArtist || 'Unknown Artist');
         // Add a chat message for the revelation
-        this.chatMessages.update(messages => [...messages, { nickname: 'System', message: `The previous song was: "${this.actualCurrentTurnSongArtist || 'Unknown Artist'} - ${this.actualCurrentTurnSongTitle || 'Unknown Title'}"`, timestamp: Date.now() }]);
+        this.chatMessages.update(messages => [...messages, { nickname: 'System', message: `The previous song was: "${this._actualArtist || 'Unknown Artist'} - ${this._actualTitle || 'Unknown Title'}"`, timestamp: Date.now() }]);
       }
+      this.clearRevealTimer(); // Stop any ongoing revelation from the previous turn
 
       // === SETUP FOR NEW TURN ===
       this.currentTurnNickname.set(currentPlayerNickname);
       this.currentTurnId.set(currentPlayerId);
       this.currentMusicUrl.set(currentMusicUrl);
       this.currentMusicStartTime.set(Number(currentMusicStartTime) || 0);
+      this.turnEndTime = turnEndTime; // Store the server-provided turn end time
 
       // Store the new song's actual details for revelation at the *next* turn change
-      this.actualCurrentTurnSongTitle = songTitle;
-      this.actualCurrentTurnSongArtist = songArtist;
-      console.log(`[FRONTEND] Storing actual current turn song: Title="${this.actualCurrentTurnSongTitle}", Artist="${this.actualCurrentTurnSongArtist}"`);
+      this._actualTitle = songTitle;
+      this._actualArtist = songArtist;
+      console.log(`[FRONTEND] Storing actual current turn song: Title="${this._actualTitle}", Artist="${this._actualArtist}"`);
 
-      // Reset the displayed song info to blurred '???' for the NEW turn
-      this.currentDisplayTitle.set(null); 
-      this.currentDisplayArtist.set(null);
+      // Initialize the displayed title/artist with underscores and start revealing letters
+      this.initializeRevealedDisplay();
+      this.startRevealTimer();
 
-      this.resetTimer(); // Reset the turn timer for the new turn
+      this.startTimer(); // Start/reset the main turn timer based on server's turnEndTime
       this.message.set(null); // Clear any temporary messages
       this.chatMessages.update(messages => [...messages, { nickname: 'System', message: `It's ${currentPlayerNickname}'s turn!`, timestamp: Date.now() }]);
 
@@ -174,7 +191,8 @@ export class MusicGuesserComponent implements OnDestroy {
       this.gameStarted.set(false); // Game is no longer in progress
       this.gameEnded.set(true);   // Game has now explicitly ended
       this.scores.set(scores); // Display final scores
-      this.clearTimer(); // Stop any active timer
+      this.clearTimer(); // Stop any active main timer
+      this.clearRevealTimer(); // Stop any active reveal timer
       if (this.player) {
         this.player.stopVideo(); // Stop music playback
       }
@@ -183,11 +201,11 @@ export class MusicGuesserComponent implements OnDestroy {
 
       // === REVEAL FINAL SONG AT GAME END ===
       // Ensure the very last song's answer is revealed when the game concludes
-      if (this.actualCurrentTurnSongTitle !== null || this.actualCurrentTurnSongArtist !== null) {
-        console.log(`[FRONTEND] Revealing final song at game end: Title: "${this.actualCurrentTurnSongTitle}", Artist: "${this.actualCurrentTurnSongArtist}"`);
-        this.currentDisplayTitle.set(this.actualCurrentTurnSongTitle);
-        this.currentDisplayArtist.set(this.actualCurrentTurnSongArtist);
-        this.chatMessages.update(messages => [...messages, { nickname: 'System', message: `The final song was: "${this.actualCurrentTurnSongArtist || 'Unknown Artist'} - ${this.actualCurrentTurnSongTitle || 'Unknown Title'}"`, timestamp: Date.now() }]);
+      if (this._actualTitle !== null || this._actualArtist !== null) {
+        console.log(`[FRONTEND] Revealing final song at game end: Title: "${this._actualTitle}", Artist: "${this._actualArtist}"`);
+        this.revealedTitle.set(this._actualTitle || 'Unknown Title');
+        this.revealedArtist.set(this._actualArtist || 'Unknown Artist');
+        this.chatMessages.update(messages => [...messages, { nickname: 'System', message: `The final song was: "${this._actualArtist || 'Unknown Artist'} - ${this._actualTitle || 'Unknown Title'}"`, timestamp: Date.now() }]);
       }
     });
 
@@ -210,45 +228,169 @@ export class MusicGuesserComponent implements OnDestroy {
 
   // Lifecycle hook: called when component is destroyed
   ngOnDestroy() {
-    this.clearTimer(); // Clear any active timer to prevent memory leaks
+    this.clearTimer(); // Clear any active main timer to prevent memory leaks
+    this.clearRevealTimer(); // Clear any active reveal timer
     if (this.player) {
       this.player.destroy(); // Destroy YouTube player instance to release resources
     }
   }
 
-  // Starts the turn countdown timer
+  // Starts the main turn countdown timer, now based on server's turnEndTime
   private startTimer() {
     this.clearTimer(); // Clear any existing timer first
-    this.timeLeft = 30; // Set initial time
     this.timerInterval = setInterval(() => {
-      this.timeLeft--;
+      const now = Date.now();
+      const remainingTime = Math.max(0, Math.floor((this.turnEndTime - now) / 1000));
+      this.timeLeft = remainingTime;
+
       if (this.timeLeft <= 0) {
         // If time runs out, and it's the host and game is active, auto-advance turn
+        // The backend's timer will also fire, ensuring synchronization.
         if (this.isHost() && this.gameStarted() && !this.gameEnded()) {
-          console.log('[FRONTEND] Timer ended, host auto-advancing turn.');
-          this.socketService.nextTurn(this.room());
+          console.log('[FRONTEND] Client timer ended, host auto-advancing turn (backend also handling).');
+          // No need to explicitly call socketService.nextTurn() here, as the backend will handle it.
+          // This client-side timer is primarily for display.
+        } else if (this.gameStarted() && !this.gameEnded()) {
+          // If not host, just clear the timer and wait for backend's turn-changed event
+          console.log('[FRONTEND] Client timer ended, not host. Waiting for backend turn change.');
         } else {
-          // If timer ends but game is not active, just clear the timer
-          console.log('[FRONTEND] Timer ended, but game is not active (started or ended). Clearing timer.');
-          this.clearTimer();
+           // If timer ends but game is not active, just clear the timer
+           console.log('[FRONTEND] Timer ended, but game is not active (started or ended). Clearing timer.');
         }
+        this.clearTimer(); // Always clear the client-side timer when it reaches zero
       }
     }, 1000); // Update every second
   }
 
-  // Resets the timer to its initial duration
+  // Resets the main timer. Now primarily done by startTimer after turn-changed.
   private resetTimer() {
-    this.timeLeft = 30;
+    // This function is less relevant with server-authoritative timer, but can be kept for consistency.
+    this.timeLeft = this.turnDuration(); // Reset to the configured duration for display
   }
 
-  // Clears the timer interval
+  // Clears the main timer interval
   private clearTimer() {
     if (this.timerInterval) {
       clearInterval(this.timerInterval);
       this.timerInterval = null;
-      console.log('[FRONTEND] Timer cleared.');
+      console.log('[FRONTEND] Main timer cleared.');
     }
   }
+
+  // Initializes the displayed title/artist with underscores and calculates total revealable letters
+  private initializeRevealedDisplay(): void {
+    let totalAlphaChars = 0;
+    const titleChars = this._actualTitle ? this._actualTitle.split('') : [];
+    const artistChars = this._actualArtist ? this._actualArtist.split('') : [];
+
+    // Calculate total revealable letters (including Cyrillic characters now)
+    titleChars.forEach(char => { if (/\p{L}/u.test(char)) totalAlphaChars++; }); // Use \p{L} for any Unicode letter
+    artistChars.forEach(char => { if (/\p{L}/u.test(char)) totalAlphaChars++; }); // Use \p{L} for any Unicode letter
+    
+    this._totalRevealableLetters = totalAlphaChars;
+    this._revealedLetterCount = 0; // Reset revealed count for new turn
+
+    const titleToDisplay = this._actualTitle ? this.getUnderscoredString(this._actualTitle) : '???';
+    const artistToDisplay = this._actualArtist ? this.getUnderscoredString(this._actualArtist) : '???';
+    this.revealedTitle.set(titleToDisplay);
+    this.revealedArtist.set(artistToDisplay);
+    console.log(`[FRONTEND] Initialized revealed display. Total revealable letters: ${this._totalRevealableLetters}. Current display: "${this.revealedTitle()}" - "${this.revealedArtist()}"`);
+  }
+
+  // Helper to convert text to underscores, preserving spaces, hyphens, and numbers
+  private getUnderscoredString(text: string): string {
+    return text.split('').map(char => {
+      if (/\s/.test(char)) return ' '; // Keep spaces
+      if (/-/.test(char)) return '-'; // Keep hyphens
+      if (/\d/.test(char)) return char; // Keep numbers
+      if (/\p{L}/u.test(char)) return '_'; // Replace any Unicode letter with underscore
+      return char; // Keep other special characters as is (e.g., apostrophes, punctuation)
+    }).join('');
+  }
+
+  // Starts the letter revelation timer
+  private startRevealTimer(): void {
+    this.clearRevealTimer(); // Clear any existing timer first
+    const REVEAL_INTERVAL_MS = 7000; // Reveal a letter every 7 seconds
+    this.revealLetterInterval = setInterval(() => {
+      this.revealRandomLetter();
+    }, REVEAL_INTERVAL_MS);
+    console.log('[FRONTEND] Reveal timer started.');
+  }
+
+  // Clears the letter revelation timer
+  private clearRevealTimer(): void {
+    if (this.revealLetterInterval) {
+      clearInterval(this.revealLetterInterval);
+      this.revealLetterInterval = null;
+      console.log('[FRONTEND] Reveal timer cleared.');
+    }
+  }
+
+  // Reveals a random unrevealed letter in either title or artist
+  private revealRandomLetter(): void {
+    // Stop if a certain percentage of letters have been revealed
+    if (this._totalRevealableLetters > 0 && 
+        (this._revealedLetterCount / this._totalRevealableLetters) >= this.REVEAL_STOP_PERCENTAGE) {
+      console.log(`[FRONTEND] Revelation stopped: ${this._revealedLetterCount}/${this._totalRevealableLetters} revealed (${((this._revealedLetterCount / this._totalRevealableLetters) * 100).toFixed(0)}%).`);
+      this.clearRevealTimer();
+      return;
+    }
+
+    let revealedSomething = false;
+    let availableIndices: { type: 'title' | 'artist', index: number }[] = [];
+
+    // Collect all unrevealed letter indices from title
+    if (this._actualTitle && this.revealedTitle().includes('_')) {
+      const actualChars = this._actualTitle.split('');
+      const revealedChars = this.revealedTitle().split('');
+      for (let i = 0; i < actualChars.length; i++) {
+        // Now checks for any Unicode letter
+        if (revealedChars[i] === '_' && /\p{L}/u.test(actualChars[i])) { 
+          availableIndices.push({ type: 'title', index: i });
+        }
+      }
+    }
+
+    // Collect all unrevealed letter indices from artist
+    if (this._actualArtist && this.revealedArtist().includes('_')) {
+      const actualChars = this._actualArtist.split('');
+      const revealedChars = this.revealedArtist().split('');
+      for (let i = 0; i < actualChars.length; i++) {
+        // Now checks for any Unicode letter
+        if (revealedChars[i] === '_' && /\p{L}/u.test(actualChars[i])) { 
+          availableIndices.push({ type: 'artist', index: i });
+        }
+      }
+    }
+
+    if (availableIndices.length > 0) {
+      const randomChoice = availableIndices[Math.floor(Math.random() * availableIndices.length)];
+      
+      if (randomChoice.type === 'title') {
+        const actualChars = this._actualTitle!.split(''); // ! asserts non-null
+        const revealedChars = this.revealedTitle().split('');
+        revealedChars[randomChoice.index] = actualChars[randomChoice.index];
+        this.revealedTitle.set(revealedChars.join(''));
+        console.log(`[FRONTEND] Revealed letter in title: "${actualChars[randomChoice.index]}" at index ${randomChoice.index}. New title: "${this.revealedTitle()}"`);
+      } else { // type === 'artist'
+        const actualChars = this._actualArtist!.split(''); // ! asserts non-null
+        const revealedChars = this.revealedArtist().split('');
+        revealedChars[randomChoice.index] = actualChars[randomChoice.index];
+        this.revealedArtist.set(revealedChars.join(''));
+        console.log(`[FRONTEND] Revealed letter in artist: "${actualChars[randomChoice.index]}" at index ${randomChoice.index}. New artist: "${this.revealedArtist()}"`);
+      }
+      this._revealedLetterCount++;
+      revealedSomething = true;
+    }
+
+    // If nothing new was revealed (meaning both are fully revealed or hit threshold), clear the timer
+    if (!revealedSomething || (this._totalRevealableLetters > 0 && (this._revealedLetterCount / this._totalRevealableLetters) >= this.REVEAL_STOP_PERCENTAGE)) {
+      this.clearRevealTimer();
+      console.log('[FRONTEND] No more letters to reveal or revelation threshold reached. Stopping reveal timer.');
+    }
+  }
+
 
   // Displays a temporary message to the user
   showMessage(text: string, isError: boolean = false) {
@@ -286,11 +428,18 @@ export class MusicGuesserComponent implements OnDestroy {
       this.currentMusicStartTime.set(0);
       this.currentTurnId.set('');
       this.currentTurnNickname.set('');
-      this.currentDisplayTitle.set(null); // Clear displayed title
-      this.currentDisplayArtist.set(null); // Clear displayed artist
-      this.actualCurrentTurnSongTitle = null; // Clear internal storage for current song
-      this.actualCurrentTurnSongArtist = null; // Clear internal storage for current song
-      this.clearTimer();
+      this.turnDuration.set(30); // Reset turn duration to default on join
+      
+      // Reset song revelation displays
+      this._actualTitle = null;
+      this._actualArtist = null;
+      this.revealedTitle.set('');
+      this.revealedArtist.set('');
+      this.clearRevealTimer();
+      this._totalRevealableLetters = 0;
+      this._revealedLetterCount = 0;
+
+      this.clearTimer(); // Clear main timer
       if (this.player) this.player.stopVideo(); // Stop any lingering music
     } else {
       this.showMessage(res.message || 'Failed to join room.', true);
@@ -325,12 +474,19 @@ export class MusicGuesserComponent implements OnDestroy {
       this.showMessage('Only the host can start the game.', true);
       return;
     }
+    // Validate turn duration input
+    const duration = this.turnDuration();
+    if (isNaN(duration) || duration < 10 || duration > 120) {
+      this.showMessage('Turn duration must be a number between 10 and 120 seconds.', true);
+      return;
+    }
+
     // Prevent starting game if it has already ended
     if (this.gameEnded()) {
         this.showMessage('Game has ended. Please reset the game to start a new game.', true);
         return;
     }
-    const res = await this.socketService.startGame(this.room());
+    const res = await this.socketService.startGame(this.room(), duration); // Pass turnDuration
     if (!res.success) {
       this.showMessage(res.message || 'Failed to start game.', true);
     } else {
@@ -431,10 +587,17 @@ export class MusicGuesserComponent implements OnDestroy {
       this.currentMusicStartTime.set(0);
       this.currentTurnId.set('');
       this.currentTurnNickname.set('');
-      this.currentDisplayTitle.set(null);
-      this.currentDisplayArtist.set(null);
-      this.actualCurrentTurnSongTitle = null; // Ensure this is also reset
-      this.actualCurrentTurnSongArtist = null; // Ensure this is also reset
+      this.turnDuration.set(30); // Reset turn duration to default on reset
+      
+      // Reset song revelation displays
+      this._actualTitle = null;
+      this._actualArtist = null;
+      this.revealedTitle.set('');
+      this.revealedArtist.set('');
+      this.clearRevealTimer();
+      this._totalRevealableLetters = 0;
+      this._revealedLetterCount = 0;
+
       this.clearTimer();
       if (this.player) {
         this.player.stopVideo();

@@ -65,7 +65,9 @@ io.on('connection', (socket) => {
         turnQueue: [], // Order of player turns
         currentTurnIndex: 0, // Index in turnQueue for current player
         totalTurnsPlayed: 0, // Counter for total turns played in the game
-        maxTurns: 0 // Total number of turns the game should last
+        maxTurns: 0, // Total number of turns the game should last
+        turnDuration: 30, // Default turn duration in seconds
+        turnTimeoutId: null // Stores the ID of the server-side turn timer
       };
       console.log(`[BACKEND] Room "${room}" created by "${nickname}" (${socket.id}).`);
     }
@@ -147,7 +149,8 @@ io.on('connection', (socket) => {
             console.log(`[BACKEND] MusicBrainz raw match (Score: ${topResult.score}): Title="${mbTitle}", Artist="${mbArtist}"`);
 
             // Apply cleaning and parsing to MusicBrainz results
-            const cleanedMbResult = cleanAndParseSongDetails(mbTitle + ' - ' + mbArtist); // Combine for robust cleaning
+            // Note: We combine them to ensure the cleaning logic (especially dash splitting) is applied consistently.
+            const cleanedMbResult = cleanAndParseSongDetails(`${mbTitle} - ${mbArtist}`); 
             determinedTitle = cleanedMbResult.title;
             determinedArtist = cleanedMbResult.artist;
 
@@ -197,7 +200,7 @@ io.on('connection', (socket) => {
   });
 
   // Event: Host starts the game
-  socket.on('start-game', (room, callback) => {
+  socket.on('start-game', (room, turnDuration, callback) => { // Added turnDuration parameter
     const roomObj = rooms[room];
     if (!roomObj) return callback({ success: false, message: 'Room not found' });
     if (socket.id !== roomObj.hostId) return callback({ success: false, message: 'Only the host can start the game.' });
@@ -207,6 +210,12 @@ io.on('connection', (socket) => {
     if (roomObj.gameStarted) return callback({ success: false, message: 'Game is already in progress.' });
     if (roomObj.gameEnded) return callback({ success: false, message: 'Game has ended. Please reset to start a new game.' });
 
+    // Validate turnDuration
+    const parsedTurnDuration = parseInt(turnDuration, 10);
+    if (isNaN(parsedTurnDuration) || parsedTurnDuration < 10 || parsedTurnDuration > 120) { // Enforce reasonable limits
+        return callback({ success: false, message: 'Invalid turn duration. Must be a number between 10 and 120 seconds.' });
+    }
+
     // Initialize game state for a new game
     roomObj.gameStarted = true;
     roomObj.gameEnded = false; // Ensure game is not in 'ended' state
@@ -214,17 +223,20 @@ io.on('connection', (socket) => {
     roomObj.currentTurnIndex = 0;
     roomObj.totalTurnsPlayed = 0; // Reset total turns played
     roomObj.maxTurns = roomObj.turnQueue.length; // Max turns equals player count (each player's song played once)
+    roomObj.turnDuration = parsedTurnDuration; // Store the chosen turn duration
+    roomObj.turnTimeoutId = null; // Initialize turn timeout ID
 
     // Reset hasGuessedCorrectlyThisTurn for all players at the start of the game
     Object.values(roomObj.players).forEach(player => {
       player.hasGuessedCorrectlyThisTurn = { title: false, artist: false };
     });
 
-    console.log(`[BACKEND] Game starting in room "${room}". Max total turns: ${roomObj.maxTurns}. Initial turn queue: ${roomObj.turnQueue.map(id => rooms[room].players[id].nickname).join(', ')}.`);
+    console.log(`[BACKEND] Game starting in room "${room}". Max total turns: ${roomObj.maxTurns}. Turn duration: ${roomObj.turnDuration}s. Initial turn queue: ${roomObj.turnQueue.map(id => rooms[room].players[id].nickname).join(', ')}.`);
 
     // Emit game-started event to all clients
     io.to(room).emit('game-started', {
       turnQueue: roomObj.turnQueue.map(id => roomObj.players[id].nickname),
+      turnDuration: roomObj.turnDuration // Send turn duration to frontend
     });
 
     startNextTurn(room); // Start the first turn
@@ -242,6 +254,13 @@ io.on('connection', (socket) => {
       return callback({ success: false, message: 'Game has already ended. Cannot skip turns.' });
     }
     
+    // Clear the current turn timer on manual skip
+    if (roomObj.turnTimeoutId) {
+        clearTimeout(roomObj.turnTimeoutId);
+        roomObj.turnTimeoutId = null;
+        console.log(`[BACKEND] Existing turn timer cleared for room "${room}" due to manual skip.`);
+    }
+
     // Reset hasGuessedCorrectlyThisTurn for all players at the start of a new turn
     Object.values(roomObj.players).forEach(player => {
       player.hasGuessedCorrectlyThisTurn = { title: false, artist: false };
@@ -263,6 +282,13 @@ io.on('connection', (socket) => {
 
     console.log(`[BACKEND] Resetting game for room: "${room}".`);
 
+    // Clear any active turn timer
+    if (roomObj.turnTimeoutId) {
+        clearTimeout(roomObj.turnTimeoutId);
+        roomObj.turnTimeoutId = null;
+        console.log(`[BACKEND] Turn timer cleared for room "${room}" due to game reset.`);
+    }
+
     // Reset general game state variables
     roomObj.gameStarted = false;
     roomObj.gameEnded = false; // Allow new games to be started
@@ -270,6 +296,8 @@ io.on('connection', (socket) => {
     roomObj.currentTurnIndex = 0;
     roomObj.totalTurnsPlayed = 0; // Reset total turns played
     roomObj.maxTurns = 0; // Reset max turns
+    roomObj.turnDuration = 30; // Reset turn duration to default
+    roomObj.turnTimeoutId = null; // Ensure timeout ID is cleared
 
     // Reset individual player-specific states for a fresh game
     Object.values(roomObj.players).forEach(player => {
@@ -288,6 +316,82 @@ io.on('connection', (socket) => {
     // Emit updated room state to all clients
     io.to(room).emit('room-update', getRoomUpdate(room));
     callback({ success: true, message: 'Game reset successfully. Players can now upload new songs.' });
+  });
+
+  // Event: Player disconnects
+  socket.on('disconnect', () => {
+    console.log('Client disconnected:', socket.id);
+    // Iterate through all rooms to find and remove the disconnected player
+    for (const room in rooms) {
+      if (rooms[room].players[socket.id]) {
+        const roomObj = rooms[room];
+        const disconnectedPlayerNickname = roomObj.players[socket.id].nickname || 'Unknown'; // Get nickname before deleting
+        delete roomObj.players[socket.id];
+        console.log(`[BACKEND] Player "${disconnectedPlayerNickname}" (${socket.id}) disconnected from room "${room}". Remaining players: ${Object.keys(roomObj.players).length}.`);
+
+        // If no players left in the room, delete the room
+        if (Object.keys(roomObj.players).length === 0) {
+          // Clear any active turn timer before deleting the room
+          if (roomObj.turnTimeoutId) {
+            clearTimeout(roomObj.turnTimeoutId);
+            roomObj.turnTimeoutId = null;
+            console.log(`[BACKEND] Turn timer cleared for room "${room}" due to all players disconnected.`);
+          }
+          delete rooms[room];
+          console.log(`[BACKEND] Room "${room}" deleted as all players disconnected.`);
+          return; // Stop processing as room no longer exists
+        } else {
+          // If the host disconnected, assign a new host
+          if (roomObj.hostId === socket.id) {
+            roomObj.hostId = Object.keys(roomObj.players)[0]; // Assign first remaining player as new host
+            console.log(`[BACKEND] Host disconnected from room "${room}". New host: "${roomObj.players[roomObj.hostId]?.nickname || roomObj.hostId}".`);
+          }
+          
+          // If the game was active and the disconnected player was in the turn queue
+          if (roomObj.gameStarted && !roomObj.gameEnded && roomObj.turnQueue.includes(socket.id)) {
+            const wasCurrentTurnPlayer = (roomObj.turnQueue[roomObj.currentTurnIndex] === socket.id);
+            
+            // Remove the disconnected player from the turn queue
+            roomObj.turnQueue = roomObj.turnQueue.filter(id => id !== socket.id);
+            console.log(`[BACKEND] Turn queue after filtering disconnected player: ${roomObj.turnQueue.map(id => rooms[room].players[id]?.nickname || 'Unknown').join(', ')}.`);
+
+            if (roomObj.turnQueue.length === 0) {
+                // If turn queue becomes empty, end the game
+                console.log(`[BACKEND] All active players left turn queue in room "${room}". Ending game.`);
+                io.to(room).emit('game-ended', { 
+                    scores: Object.values(roomObj.players).map(p => ({
+                        nickname: p.nickname,
+                        score: p.score
+                    })).sort((a, b) => b.score - a.score)
+                });
+                roomObj.gameEnded = true;
+                roomObj.gameStarted = false;
+                // Clear any active turn timer
+                if (roomObj.turnTimeoutId) {
+                    clearTimeout(roomObj.turnTimeoutId);
+                    roomObj.turnTimeoutId = null;
+                    console.log(`[BACKEND] Turn timer cleared for room "${room}" due to game end (empty queue).`);
+                }
+                io.to(room).emit('room-update', getRoomUpdate(room));
+                return; // Game has ended, stop further turn processing
+            }
+
+            // Adjust currentTurnIndex if it's now out of bounds
+            if (roomObj.currentTurnIndex >= roomObj.turnQueue.length) {
+                roomObj.currentTurnIndex = 0; // Wrap around
+            }
+            
+            // If the disconnected player was the current turn holder, start the next turn
+            // This will increment totalTurnsPlayed and check for game end
+            if (wasCurrentTurnPlayer && !roomObj.gameEnded) { // Add !roomObj.gameEnded check here
+                startNextTurn(room);
+            }
+          }
+          io.to(room).emit('room-update', getRoomUpdate(room)); // Always send room update if players remain
+        }
+        break; // Player found and handled, break from room iteration
+      }
+    }
   });
 
   // Event for real-time chat messages and guessing
@@ -406,6 +510,12 @@ io.on('connection', (socket) => {
 
         // If no players left in the room, delete the room
         if (Object.keys(roomObj.players).length === 0) {
+          // Clear any active turn timer before deleting the room
+          if (roomObj.turnTimeoutId) {
+            clearTimeout(roomObj.turnTimeoutId);
+            roomObj.turnTimeoutId = null;
+            console.log(`[BACKEND] Turn timer cleared for room "${room}" due to all players disconnected.`);
+          }
           delete rooms[room];
           console.log(`[BACKEND] Room "${room}" deleted as all players disconnected.`);
           return; // Stop processing as room no longer exists
@@ -435,6 +545,12 @@ io.on('connection', (socket) => {
                 });
                 roomObj.gameEnded = true;
                 roomObj.gameStarted = false;
+                // Clear any active turn timer
+                if (roomObj.turnTimeoutId) {
+                    clearTimeout(roomObj.turnTimeoutId);
+                    roomObj.turnTimeoutId = null;
+                    console.log(`[BACKEND] Turn timer cleared for room "${room}" due to game end (empty queue).`);
+                }
                 io.to(room).emit('room-update', getRoomUpdate(room));
                 return; // Game has ended, stop further turn processing
             }
@@ -483,6 +599,12 @@ io.on('connection', (socket) => {
         return; // IMPORTANT: Immediately return
     }
 
+    // Clear any previous turn timer before starting a new one
+    if (roomObj.turnTimeoutId) {
+        clearTimeout(roomObj.turnTimeoutId);
+        roomObj.turnTimeoutId = null;
+    }
+
     // Increment total turns played for the game
     roomObj.totalTurnsPlayed++; 
     console.log(`[BACKEND] Room "${room}": Turn ${roomObj.totalTurnsPlayed}/${roomObj.maxTurns}.`);
@@ -498,6 +620,11 @@ io.on('connection', (socket) => {
         });
         roomObj.gameEnded = true;
         roomObj.gameStarted = false; // Game is no longer actively 'started' for play
+        // Clear any active turn timer
+        if (roomObj.turnTimeoutId) {
+            clearTimeout(roomObj.turnTimeoutId);
+            roomObj.turnTimeoutId = null;
+        }
         console.log(`[BACKEND] Room "${room}": Game state set to gameEnded=${roomObj.gameEnded}, gameStarted=${roomObj.gameStarted}.`);
         io.to(room).emit('room-update', getRoomUpdate(room)); // Inform all clients about the end state
         return; // Stop further logic if game has ended
@@ -520,6 +647,11 @@ io.on('connection', (socket) => {
             });
             roomObj.gameEnded = true;
             roomObj.gameStarted = false;
+            // Clear any active turn timer
+            if (roomObj.turnTimeoutId) {
+                clearTimeout(roomObj.turnTimeoutId);
+                roomObj.turnTimeoutId = null;
+            }
             io.to(room).emit('room-update', getRoomUpdate(room));
             return;
         }
@@ -536,6 +668,18 @@ io.on('connection', (socket) => {
         return startNextTurn(room);
     }
 
+    // Set server-side timer for the current turn
+    const currentTurnEndTime = Date.now() + (roomObj.turnDuration * 1000);
+    roomObj.turnTimeoutId = setTimeout(() => {
+        console.log(`[BACKEND] Turn timer expired for room "${room}". Advancing turn.`);
+        // Reset hasGuessedCorrectlyThisTurn for all players when turn auto-advances
+        Object.values(roomObj.players).forEach(player => {
+            player.hasGuessedCorrectlyThisTurn = { title: false, artist: false };
+        });
+        roomObj.currentTurnIndex = (roomObj.currentTurnIndex + 1) % roomObj.turnQueue.length;
+        startNextTurn(room);
+    }, roomObj.turnDuration * 1000);
+
     // All checks passed, emit turn change event to clients
     console.log(`[BACKEND] startNextTurn: Emitting turn-changed for player "${roomObj.players[currentPlayerId].nickname}". Music URL: "${roomObj.players[currentPlayerId].musicUrl}", Emitting Start Time: ${roomObj.players[currentPlayerId].musicStartTime}.`);
     console.log(`[BACKEND] Sending song details with turn-changed: Title="${roomObj.players[currentPlayerId].songTitle}", Artist="${roomObj.players[currentPlayerId].songArtist}"`);
@@ -544,9 +688,9 @@ io.on('connection', (socket) => {
       currentPlayerNickname: roomObj.players[currentPlayerId].nickname,
       currentMusicUrl: roomObj.players[currentPlayerId].musicUrl,
       currentMusicStartTime: roomObj.players[currentPlayerId].musicStartTime,
-      // Send the song title and artist with the turn change
       songTitle: roomObj.players[currentPlayerId].songTitle,
       songArtist: roomObj.players[currentPlayerId].songArtist,
+      turnEndTime: currentTurnEndTime // Send the calculated end time to the frontend
     });
   }
 
@@ -567,7 +711,7 @@ io.on('connection', (socket) => {
     }
 
     // Try to find timestamp in fragment parameters: #t= or #at= (e.g., #t=1m30s, #t=90)
-    const fragmentMatch = url.match(/#(?:t|at)=((?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?|(\d+))/i);
+    const fragmentMatch = url.match(/#(?:t|at)=((?:(\d+)h)?(?:(\d+)m)?(?:(\\d+)s)?|(\\d+))/i);
     if (fragmentMatch) {
         if (fragmentMatch[5]) { // If it's just numbers after #t= (e.g., #t=90)
             startTime = parseInt(fragmentMatch[5], 10);
@@ -635,12 +779,13 @@ io.on('connection', (socket) => {
       console.log(`[BACKEND] cleanAndParseSongDetails: After aggressive noise removal: "${cleanedTitle}"`);
 
       // Attempt to split by " - " to separate artist and title
-      // Prioritize the last " - " for cases like "Artist - Album - Song Title"
+      // If the input string is "Title - Artist", then the first part is title, second is artist.
       const lastDashIndex = cleanedTitle.lastIndexOf(' - ');
       if (lastDashIndex !== -1) {
-          artist = cleanedTitle.substring(0, lastDashIndex).trim();
-          title = cleanedTitle.substring(lastDashIndex + 3).trim(); // +3 for " - "
-          console.log(`[BACKEND] cleanAndParseSongDetails: Split by last " - ": Artist="${artist}", Title="${title}"`);
+          // CORRECTED: Assuming "Title - Artist" format for splitting
+          title = cleanedTitle.substring(0, lastDashIndex).trim();
+          artist = cleanedTitle.substring(lastDashIndex + 3).trim(); // +3 for " - "
+          console.log(`[BACKEND] cleanAndParseSongDetails: Split by last " - ": Title="${title}", Artist="${artist}"`);
       } else {
           // If no " - " or split wasn't effective, assume the whole thing is the title.
           title = cleanedTitle;

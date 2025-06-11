@@ -16,7 +16,7 @@ body {
 #chat-display::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
-/* Style for blurred text */
+/* Style for blurred text - Note: This class is no longer applied to revealedTitle/Artist directly for visibility */
 .blur-text {
   filter: blur(4px); /* Adjust blur strength as needed */
   transition: filter 0.3s ease-in-out;

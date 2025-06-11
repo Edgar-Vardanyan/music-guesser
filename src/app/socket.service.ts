@@ -31,6 +31,7 @@ interface TurnChangedData {
   currentMusicStartTime: number; // Includes the start time for the music
   songTitle: string | null; // Actual title of the song for the current turn
   songArtist: string | null; // Actual artist of the song for the current turn
+  turnEndTime: number; // Timestamp (milliseconds) when the current turn ends
 }
 
 // Interface for a chat message, including optional guess result properties
@@ -43,7 +44,7 @@ interface ChatMessage {
   artistCorrect?: boolean;
   correctTitle?: string | null;
   correctArtist?: string | null;
-  guesserNickname?: string; // The nickname of the player who made the guess
+  guesserNickname?: string;
 }
 
 @Injectable({
@@ -84,15 +85,15 @@ export class SocketService {
     });
   }
 
-  // Emits 'start-game' event to server (host only)
-  startGame(room: string): Promise<{ success: boolean; message?: string }> {
+  // Emits 'start-game' event to server (host only), now accepts turnDuration
+  startGame(room: string, turnDuration: number): Promise<{ success: boolean; message?: string }> {
     return new Promise((resolve) => {
-      this.socket.emit('start-game', room, resolve);
+      this.socket.emit('start-game', room, turnDuration, resolve);
     });
   }
 
-  // Listens for 'game-started' events from server
-  onGameStarted(): Observable<{ turnQueue: string[] }> {
+  // Listens for 'game-started' events from server, now includes turnDuration
+  onGameStarted(): Observable<{ turnQueue: string[], turnDuration: number }> {
     return new Observable((observer) => {
       this.socket.on('game-started', (data) => observer.next(data));
     });
