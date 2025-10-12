@@ -134,31 +134,9 @@ io.on('connection', (socket) => {
       
       const tracks = response.data.tracks.items;
       
-      // Try to find preview URLs using spotify-preview-finder
-      const tracksWithPreviews = await Promise.all(tracks.map(async (track) => {
-        if (track.preview_url) {
-          return track; // Already has preview URL
-        }
-        
-        try {
-          // Set environment variables for the package
-          process.env.SPOTIFY_CLIENT_ID = SPOTIFY_CLIENT_ID;
-          process.env.SPOTIFY_CLIENT_SECRET = SPOTIFY_CLIENT_SECRET;
-          
-          const result = await SpotifyPreviewFinder(track.name, track.artists[0].name, 1);
-          const previewUrl = result.success && result.results.length > 0 ? result.results[0].previewUrls[0] : null;
-          
-          if (previewUrl) {
-            return { ...track, preview_url: previewUrl };
-          } else {
-            return track;
-          }
-        } catch (error) {
-          return track;
-        }
-      }));
-      
-      callback({ success: true, tracks: tracksWithPreviews });
+      // Return tracks immediately - preview finder is too slow for search
+      // Preview URLs will be found later when needed
+      callback({ success: true, tracks: tracks });
     } catch (error) {
       if (error.response?.status === 401) {
         callback({ success: false, message: 'Authentication failed. Please log in again.', tracks: [] });
@@ -167,6 +145,22 @@ io.on('connection', (socket) => {
       } else {
         callback({ success: false, message: 'Spotify search failed', tracks: [] });
       }
+    }
+  });
+
+  // Event: Find preview URL for a specific track
+  socket.on('find-preview-url', async ({ trackName, artistName }, callback) => {
+    try {
+      // Set environment variables for the package
+      process.env.SPOTIFY_CLIENT_ID = SPOTIFY_CLIENT_ID;
+      process.env.SPOTIFY_CLIENT_SECRET = SPOTIFY_CLIENT_SECRET;
+      
+      const result = await SpotifyPreviewFinder(trackName, artistName, 1);
+      const previewUrl = result.success && result.results.length > 0 ? result.results[0].previewUrls[0] : null;
+      
+      callback({ success: true, previewUrl });
+    } catch (error) {
+      callback({ success: false, previewUrl: null });
     }
   });
 

@@ -695,9 +695,23 @@ export class MusicGuesserComponent implements OnDestroy {
   }
 
   // Select a Spotify track
-  selectSpotifyTrack(track: any) {
+  async selectSpotifyTrack(track: any) {
     this.selectedSpotifyTrack.set(track);
     this.spotifySearchResults.set([]);
+    
+    // If track doesn't have a preview URL, try to find one
+    if (!track.preview_url) {
+      try {
+        const response = await this.socketService.findPreviewUrl(track.name, track.artists[0].name);
+        if (response.success && response.previewUrl) {
+          // Update the selected track with the found preview URL
+          const updatedTrack = { ...track, preview_url: response.previewUrl };
+          this.selectedSpotifyTrack.set(updatedTrack);
+        }
+      } catch (error) {
+        // Preview URL search failed, continue with original track
+      }
+    }
   }
 
   // Submit selected Spotify track

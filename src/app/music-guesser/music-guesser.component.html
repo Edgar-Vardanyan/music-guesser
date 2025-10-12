@@ -272,15 +272,6 @@
             <p class="text-xl font-semibold text-green-400 font-mono tracking-wider">{{revealedArtist()}}</p>
           </div>
         </div>
-        @if (currentSpotifyTrack()) {
-          <div class="mt-4">
-            @if (currentSpotifyTrack()!.album.images[0]) {
-              <img [src]="currentSpotifyTrack()!.album.images[0].url" 
-                   [alt]="currentSpotifyTrack()!.album.name"
-                   class="w-24 h-24 mx-auto rounded-lg object-cover shadow-lg"/>
-            }
-          </div>
-        }
       </div>
 
       <!-- Players List -->

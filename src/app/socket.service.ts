@@ -167,6 +167,13 @@ export class SocketService {
     });
   }
 
+  // Find preview URL for a specific track
+  findPreviewUrl(trackName: string, artistName: string): Promise<{ success: boolean; previewUrl?: string }> {
+    return new Promise((resolve) => {
+      this.socket.emit('find-preview-url', { trackName, artistName }, resolve);
+    });
+  }
+
   // Search Spotify tracks with session authentication
   searchSpotify(query: string, sessionId: string): Promise<{ success: boolean; tracks?: any[]; message?: string }> {
     return new Promise((resolve) => {
