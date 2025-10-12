@@ -1,204 +1,344 @@
-<div class="min-h-screen bg-gray-100 flex items-center justify-center p-4 sm:p-6 lg:p-8">
+<div class="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black flex items-center justify-center p-4 sm:p-6 lg:p-8">
 
   <!-- Custom Message Box -->
   @if (message()) {
     <div class="fixed top-4 right-4 p-4 rounded-lg shadow-lg flex items-center justify-between z-50
-                {{ message()!.isError ? 'bg-red-500 text-white' : 'bg-green-500 text-white' }}">
+                {{ message()!.isError ? 'bg-red-600 text-white' : 'bg-green-600 text-white' }}">
       <span>{{ message()!.text }}</span>
-      <button (click)="clearMessage()" class="ml-4 font-bold text-lg">&times;</button>
+      <button (click)="clearMessage()" class="ml-4 font-bold text-lg hover:opacity-75 transition-opacity">&times;</button>
     </div>
   }
 
   @if(!isJoined()) {
-    <div class="w-full max-w-md bg-white p-6 sm:p-8 rounded-xl shadow-lg text-center">
-      <h1 class="text-3xl sm:text-4xl font-bold text-gray-800 mb-6">Music Guesser Game</h1>
+    <div class="w-full max-w-md bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl text-center border border-gray-700">
+      <h1 class="text-3xl sm:text-4xl font-bold text-white mb-6">🎵 Music Guesser</h1>
       <div class="mb-4 text-left">
-        <label for="roomName" class="block text-gray-700 text-sm font-semibold mb-2">Room:</label>
+        <label for="roomName" class="block text-gray-300 text-sm font-semibold mb-2">Room:</label>
         <input id="roomName" [(ngModel)]="room" placeholder="Enter room name" maxlength="20"
-               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+               class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
       </div>
       <div class="mb-6 text-left">
-        <label for="nickname" class="block text-gray-700 text-sm font-semibold mb-2">Nickname:</label>
+        <label for="nickname" class="block text-gray-300 text-sm font-semibold mb-2">Nickname:</label>
         <input id="nickname" [(ngModel)]="nickname" placeholder="Enter your nickname" maxlength="20"
-               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+               class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
       </div>
       <button (click)="joinRoom()"
-              class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 shadow-md">
+              class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-4 rounded-lg transition duration-300 shadow-lg hover:shadow-xl">
         Join Room
       </button>
     </div>
   }
 
   @if(isJoined() && !gameStarted() && !gameEnded()) {
-    <div class="w-full max-w-lg bg-white p-6 sm:p-8 rounded-xl shadow-lg text-center">
-      <h2 class="text-2xl sm:text-3xl font-bold text-gray-800 mb-4">Room: {{room()}}</h2>
+    <div class="w-full max-w-lg bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl text-center border border-gray-700">
+      <h2 class="text-2xl sm:text-3xl font-bold text-white mb-4">🏠 Room: {{room()}}</h2>
 
-      <h3 class="text-xl sm:text-2xl font-semibold text-gray-700 mb-4">Players:</h3>
+      <h3 class="text-xl sm:text-2xl font-semibold text-gray-300 mb-4">👥 Players:</h3>
       <ul class="player-list space-y-2 mb-6">
         @for(player of players(); track player.nickname) {
-          <li class="flex flex-col sm:flex-row items-center justify-between p-3 bg-gray-50 rounded-lg shadow-sm">
-            <span class="font-medium text-gray-800">{{player.nickname}}</span>
-            <span class="text-gray-600 text-sm">Uploaded: {{player.hasUploaded ? '✅' : '❌'}}</span>
-            <span class="text-gray-600 text-sm">Score: {{player.score}}</span>
+          <li class="flex flex-col sm:flex-row items-center justify-between p-3 bg-gray-700 rounded-lg shadow-sm border border-gray-600">
+            <span class="font-medium text-white">{{player.nickname}}</span>
+            <span class="text-gray-300 text-sm">Song: {{player.hasUploaded ? '✅' : '❌'}}</span>
+            <span class="text-gray-300 text-sm">Score: {{player.score}}</span>
           </li>
         }
       </ul>
 
-      @if(isHost()) {
-        <div class="host-controls bg-blue-50 p-6 rounded-lg shadow-inner mb-6">
-          <h4 class="text-lg sm:text-xl font-semibold text-blue-800 mb-4">Game Setup:</h4>
-          
-          <div class="mb-4 text-left">
-            <label for="turnDuration" class="block text-gray-700 text-sm font-semibold mb-2">Turn Duration (seconds):</label>
-            <input id="turnDuration" type="number" [(ngModel)]="turnDuration" min="10" max="120"
-                   class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"/>
-            <p class="text-xs text-gray-500 mt-1">Between 10 and 120 seconds.</p>
-          </div>
-
-          <div class="mb-4 text-left">
-            <label for="youtubeUrl" class="block text-gray-700 text-sm font-semibold mb-2">Your Song (YouTube URL):</label>
-            <input id="youtubeUrl" [(ngModel)]="youtubeUrl" placeholder="Enter YouTube URL (e.g., https://youtu.be/abc?t=30s)"
-                   class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"/>
-          </div>
-          <div class="flex flex-col sm:flex-row gap-4 justify-center">
-            <button (click)="submitSong()"
-                    class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 shadow-md">
-              Submit Song
-            </button>
-            <button (click)="startGame()"
-                    [disabled]="!allPlayersUploaded()"
-                    class="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
-              Start Game
-            </button>
+      <!-- Submitted Songs Section -->
+      @if (players().length > 0) {
+        <div class="bg-gray-700 p-4 rounded-lg mb-6 border border-gray-600">
+          <h4 class="text-lg font-semibold text-yellow-400 mb-3">🎵 Submitted Songs:</h4>
+          <div class="space-y-2">
+            @for (player of players(); track player.nickname) {
+              <div class="flex items-center justify-between p-3 bg-gray-600 rounded border border-gray-500">
+                <div class="flex items-center gap-3">
+                  <span class="font-medium text-white">{{player.nickname}}</span>
+                  @if (player.hasUploaded) {
+                    <span class="text-green-400 text-sm">✅ Submitted</span>
+                  } @else {
+                    <span class="text-red-400 text-sm">❌ Not submitted</span>
+                  }
+                </div>
+                @if (player.hasUploaded && player.spotifyTrack) {
+                  <div class="flex items-center gap-2 text-sm text-gray-300">
+                    <span>{{player.spotifyTrack.name}}</span>
+                    <span class="text-gray-400">by</span>
+                    <span>{{getArtistsNames(player.spotifyTrack.artists)}}</span>
+                  </div>
+                }
+              </div>
+            }
           </div>
         </div>
       }
 
-      @if(!isHost()) {
-        <div class="player-controls bg-blue-50 p-6 rounded-lg shadow-inner">
-          <h4 class="text-lg sm:text-xl font-semibold text-blue-800 mb-4">Upload your song (YouTube URL):</h4>
-          <div class="mb-4 text-left">
-            <label for="youtubeUrlPlayer" class="block text-gray-700 text-sm font-semibold mb-2">Your Song:</label>
-            <input id="youtubeUrlPlayer" [(ngModel)]="youtubeUrl" placeholder="Enter YouTube URL (e.g., https://youtu.be/abc?t=30s)"
-                   class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+      <!-- Spotify Authentication Section -->
+      <div class="bg-gradient-to-r from-green-600 to-green-700 rounded-lg shadow-lg p-6 mb-6 border border-green-500">
+        <h3 class="text-xl font-bold text-white mb-4">🎵 Spotify Authentication:</h3>
+        @if (spotifyAuth.isAuthenticated()) {
+          <div class="flex items-center justify-between">
+            <div class="text-white">
+              <p class="font-semibold">✅ Connected to Spotify</p>
+              <p class="text-sm opacity-90">Welcome, {{spotifyAuth.currentSession()?.userName}}!</p>
+            </div>
+            <button (click)="spotifyAuth.logout()" 
+                    class="bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-lg transition duration-300 shadow-md">
+              Logout
+            </button>
           </div>
-          <button (click)="submitSong()"
-                  class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 shadow-md">
-            Submit Song
-          </button>
+        } @else {
+          <div class="flex items-center justify-between">
+            <div class="text-white">
+              <p class="font-semibold">🔒 Not connected to Spotify</p>
+              <p class="text-sm opacity-90">Login required to search songs and play previews</p>
+            </div>
+            <button (click)="spotifyAuth.login()" 
+                    class="bg-white hover:bg-gray-100 text-green-600 font-bold py-2 px-4 rounded-lg transition duration-300 shadow-md">
+              Login with Spotify
+            </button>
+          </div>
+        }
+        @if (spotifyAuth.isLoading()) {
+          <div class="mt-4 text-center">
+            <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+            <p class="text-white text-sm mt-2">Authenticating...</p>
+          </div>
+        }
+      </div>
+
+      @if(isHost()) {
+        <div class="host-controls bg-gray-700 p-6 rounded-lg shadow-lg mb-6 border border-gray-600">
+          <h4 class="text-lg sm:text-xl font-semibold text-blue-400 mb-4">🎮 Game Setup:</h4>
+          
+          <div class="mb-4 text-left">
+            <label for="turnDuration" class="block text-gray-300 text-sm font-semibold mb-2">Turn Duration (seconds):</label>
+            <input id="turnDuration" type="number" [(ngModel)]="turnDuration" min="10" max="120"
+                   class="w-full px-4 py-3 bg-gray-600 border border-gray-500 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+          </div>
+          
+          <!-- Song Selection Section -->
+          <div class="mb-6">
+            <h5 class="text-lg font-semibold text-gray-300 mb-3">🎵 Select Your Song:</h5>
+            <div class="mb-4">
+              <input 
+                [(ngModel)]="spotifySearchQuery"
+                (input)="searchSpotifySongs()"
+                placeholder="Search for songs on Spotify..."
+                class="w-full px-4 py-3 bg-gray-600 border border-gray-500 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              />
+            </div>
+            
+            <!-- Search Results Dropdown -->
+            @if (spotifySearchResults().length > 0) {
+              <div class="search-results bg-gray-600 border border-gray-500 rounded-lg max-h-60 overflow-y-auto mb-2">
+                @for (track of spotifySearchResults(); track track.id) {
+                  <div 
+                    (click)="selectSpotifyTrack(track)"
+                    class="p-3 hover:bg-gray-500 cursor-pointer border-b border-gray-500 last:border-b-0"
+                  >
+                    <div class="flex items-center gap-3">
+                      @if (track.album.images[0]) {
+                        <img [src]="track.album.images[0].url" [alt]="track.album.name" 
+                             class="w-12 h-12 rounded object-cover"/>
+                      }
+                      <div class="flex-1">
+                        <p class="font-semibold text-white">{{track.name}}</p>
+                        <p class="text-sm text-gray-300">{{getArtistsNames(track.artists)}}</p>
+                        <p class="text-xs text-gray-400">{{track.album.name}}</p>
+                        @if (track.preview_url) {
+                          <p class="text-xs text-green-400">🎵 Preview Available</p>
+                        } @else {
+                          <p class="text-xs text-red-400">🔇 No Preview</p>
+                        }
+                      </div>
+                      <div class="text-xs text-gray-400">
+                        {{formatDuration(track.duration_ms)}}
+                      </div>
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+            
+            <!-- Selected Song Display -->
+            @if (selectedSpotifyTrack()) {
+              <div class="selected-track bg-green-900 p-3 rounded-lg mb-2 border border-green-600">
+                <h5 class="font-semibold text-green-300 mb-2">🎵 Your Selected Song:</h5>
+                <div class="flex items-center gap-3">
+                  @if (selectedSpotifyTrack()!.album.images[0]) {
+                    <img [src]="selectedSpotifyTrack()!.album.images[0].url" 
+                         class="w-12 h-12 rounded object-cover"/>
+                  }
+                  <div class="flex-1">
+                    <p class="font-semibold text-sm text-white">{{selectedSpotifyTrack()!.name}}</p>
+                    <p class="text-xs text-gray-300">{{getArtistsNames(selectedSpotifyTrack()!.artists)}}</p>
+                    <p class="text-xs text-gray-400">{{selectedSpotifyTrack()!.album.name}}</p>
+                    @if (selectedSpotifyTrack()!.preview_url) {
+                      <p class="text-xs text-green-400">🎵 Preview Available</p>
+                    } @else {
+                      <p class="text-xs text-red-400">🔇 No Preview</p>
+                    }
+                  </div>
+                  <div class="text-xs text-gray-400">
+                    {{formatDuration(selectedSpotifyTrack()!.duration_ms)}}
+                  </div>
+                </div>
+              </div>
+            }
+            
+            <!-- Submit Button -->
+            @if (selectedSpotifyTrack()) {
+              <button (click)="submitSpotifyTrack()" 
+                      class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-4 rounded-lg transition duration-300 shadow-lg hover:shadow-xl">
+                Submit Song
+              </button>
+            }
+          </div>
+          
+          <!-- Start Game Button -->
+          @if (allPlayersUploaded()) {
+            <button (click)="startGame()" 
+                    class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-4 rounded-lg transition duration-300 shadow-lg hover:shadow-xl">
+              Start Game
+            </button>
+          } @else {
+            <button disabled 
+                    class="w-full bg-gray-600 text-gray-400 font-bold py-3 px-4 rounded-lg cursor-not-allowed">
+              Waiting for all players to submit songs...
+            </button>
+          }
         </div>
       }
     </div>
   }
 
-  @if(gameStarted()) {
-    <div class="w-full max-w-lg bg-white p-6 sm:p-8 rounded-xl shadow-lg text-center">
-      <h2 class="text-2xl sm:text-3xl font-bold text-gray-800 mb-4">Room: {{room()}}</h2>
-      <h3 class="text-xl sm:text-2xl font-semibold text-gray-700 mb-6">It's <span class="text-blue-600">{{currentTurnNickname()}}</span>'s turn</h3>
-      <div class="text-2xl font-bold text-red-500 mb-6 animate-pulse">Time left: {{timeLeftDisplay}}s</div>
+  @if(isJoined() && gameStarted() && !gameEnded()) {
+    <div class="w-full max-w-4xl bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl border border-gray-700">
+      <h2 class="text-2xl sm:text-3xl font-bold text-white mb-6 text-center">🎵 Music Guesser Game</h2>
 
+      <!-- Answer Display Overlay -->
+      @if (showingAnswer() && answerData()) {
+        <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div class="bg-gray-800 rounded-lg p-8 max-w-md mx-4 text-center border border-gray-600">
+            <h3 class="text-2xl font-bold text-white mb-4">🎵 The Answer Was:</h3>
+            <div class="mb-4">
+              <p class="text-xl font-semibold text-blue-400">{{answerData()!.songTitle}}</p>
+              <p class="text-lg text-gray-300">by {{answerData()!.songArtist}}</p>
+            </div>
+            @if (answerData()!.spotifyTrack && answerData()!.spotifyTrack.album.images[0]) {
+              <img [src]="answerData()!.spotifyTrack.album.images[0].url" 
+                   [alt]="answerData()!.spotifyTrack.album.name"
+                   class="w-32 h-32 mx-auto rounded-lg mb-4 object-cover"/>
+            }
+            <div class="text-sm text-gray-400">
+              <p>Next turn starting in 5 seconds...</p>
+            </div>
+          </div>
+        </div>
+      }
+
+      <!-- Game Controls -->
       <div class="game-controls flex flex-col sm:flex-row items-center justify-center gap-4 mb-6">
-        <div class="volume-control flex items-center gap-2 bg-gray-100 p-3 rounded-lg shadow-sm">
-          <label class="text-gray-700 font-medium">Volume: {{volumeControl()}}%</label>
+        @if (!audioEnabled) {
+          <button (click)="enableAudio()" 
+                  class="bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-4 rounded-lg transition duration-300 shadow-md">
+            🔊 Enable Music
+          </button>
+        }
+        <div class="volume-control flex items-center gap-2 bg-gray-700 p-3 rounded-lg shadow-sm border border-gray-600">
+          <label class="text-gray-300 font-medium">Volume: {{volumeControl()}}%</label>
           <input type="range" min="0" max="100" [ngModel]="volumeControl()" (ngModelChange)="volumeControl.set($event)"
                  class="w-full sm:w-32 accent-blue-500"/>
         </div>
+      </div>
 
-        <div class="media-controls flex flex-wrap justify-center gap-3">
-          <button (click)="pauseMusic()"
-                  class="bg-gray-700 hover:bg-gray-800 text-white font-bold py-2 px-4 rounded-lg transition duration-300 shadow-md flex items-center gap-1">
-            ⏸️ Pause
-          </button>
-          <button (click)="resumeMusic()"
-                  class="bg-gray-700 hover:bg-gray-800 text-white font-bold py-2 px-4 rounded-lg transition duration-300 shadow-md flex items-center gap-1">
-            ▶️ Play
-          </button>
-          @if(isHost()) {
-            <button (click)="skipTurn()"
-                    class="bg-gray-700 hover:bg-gray-800 text-white font-bold py-2 px-4 rounded-lg transition duration-300 shadow-md flex items-center gap-1">
-              ⏭️ Skip Turn
-            </button>
+      <!-- Current Turn Info -->
+      <div class="bg-gray-700 p-4 rounded-lg mb-6 border border-gray-600">
+        <h3 class="text-xl font-bold text-white mb-2">🎮 Current Turn:</h3>
+        <p class="text-gray-300">It's <span class="font-semibold text-blue-400">{{currentTurnNickname()}}</span>'s turn!</p>
+        <p class="text-sm text-gray-400 mt-1">Time remaining: {{timeLeftDisplay}}s</p>
+      </div>
+
+      <!-- Players List -->
+      <div class="bg-gray-700 p-4 rounded-lg mb-6 border border-gray-600">
+        <h3 class="text-lg font-semibold text-white mb-3">👥 Players:</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          @for(player of players(); track player.nickname) {
+            <div class="flex items-center justify-between p-3 bg-gray-600 rounded border border-gray-500">
+              <span class="font-medium text-white">{{player.nickname}}</span>
+              <span class="text-gray-300 text-sm">Score: {{player.score}}</span>
+            </div>
           }
         </div>
       </div>
 
-      <!-- NEW: Current Song Info Display (Underscores/Revealed) -->
-      <div class="current-song-info bg-gray-100 p-4 rounded-lg shadow-inner mb-6 text-left">
-        <h4 class="text-lg sm:text-xl font-semibold text-gray-800 mb-2">Current Song:</h4>
-        <p class="text-base text-gray-700 mb-1">
-          Title:
-          <!-- Added tracking-widest for more spacing between underscores -->
-          <span class="font-mono text-xl tracking-widest">{{ revealedTitle() }}</span>
-        </p>
-        <p class="text-base text-gray-700">
-          Artist:
-          <!-- Added tracking-widest for more spacing between underscores -->
-          <span class="font-mono text-xl tracking-widest">{{ revealedArtist() }}</span>
-        </p>
-      </div>
-
-      <!-- Chat Display and Input -->
-      <div class="chat-section bg-gray-100 p-4 rounded-lg shadow-inner mb-6">
-        <h4 class="text-lg sm:text-xl font-semibold text-gray-800 mb-3">Game Chat:</h4>
-        <div id="chat-display" class="bg-white p-3 border border-gray-300 rounded-lg h-48 overflow-y-auto mb-3 text-left flex flex-col-reverse">
-          <!-- Reversed loop to show latest messages at bottom -->
-          @for(chatMsg of chatMessages().slice().reverse(); track chatMsg.timestamp) {
-            @if(!chatMsg.isGuessResult) {
-              <div class="mb-1 text-sm">
-                <span class="font-semibold text-gray-700">{{chatMsg.nickname}}:</span>
-                <span class="text-gray-800">{{chatMsg.message}}</span>
-                <span class="text-gray-500 text-xs ml-2">{{formatTimestamp(chatMsg.timestamp)}}</span>
-              </div>
-            } @else {
-              <div class="mb-1 text-sm font-semibold p-1 rounded
-                          {{ chatMsg.titleCorrect || chatMsg.artistCorrect ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }}">
-                <span class="text-lg">🎉 {{chatMsg.guesserNickname}} guessed correctly!</span>
-                <!-- Removed explicit display of correct title/artist here -->
-                <span class="block text-xs font-normal">
-                  {{ chatMsg.titleCorrect ? 'Title guessed!' : '' }}
-                  {{ chatMsg.artistCorrect ? 'Artist guessed!' : '' }}
-                </span>
-                <span class="text-gray-500 text-xs ml-2">{{formatTimestamp(chatMsg.timestamp)}}</span>
-              </div>
-            }
+      <!-- Chat Section -->
+      <div class="bg-gray-700 p-4 rounded-lg mb-6 border border-gray-600">
+        <h3 class="text-lg font-semibold text-white mb-3">💬 Game Chat:</h3>
+        <div class="chat-messages bg-gray-600 h-40 overflow-y-auto p-3 rounded border border-gray-500 mb-3">
+          @for(message of chatMessages(); track message.timestamp) {
+            <div class="mb-2 text-sm">
+              <span class="font-semibold text-blue-400">{{message.nickname}}:</span>
+              <span class="text-gray-300 ml-2">{{message.message}}</span>
+            </div>
           }
         </div>
         <div class="flex gap-2">
-          <input [(ngModel)]="chatInput" (keyup.enter)="sendChatMessage()" placeholder="Type your guess or message..."
-                 class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"/>
-          <button (click)="sendChatMessage()"
-                  class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 shadow-md">
+          <input 
+            [(ngModel)]="chatInput" 
+            (keydown.enter)="sendChatMessage()"
+            placeholder="Type your guess or message..."
+            class="flex-1 px-3 py-2 bg-gray-600 border border-gray-500 rounded text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <button (click)="sendChatMessage()" 
+                  class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded transition duration-300">
             Send
           </button>
         </div>
       </div>
+
+      <!-- Host Controls -->
+      @if(isHost()) {
+        <div class="bg-gray-700 p-4 rounded-lg border border-gray-600">
+          <h3 class="text-lg font-semibold text-white mb-3">🎮 Host Controls:</h3>
+          <div class="flex gap-3">
+            <button (click)="skipTurn()" 
+                    class="bg-yellow-600 hover:bg-yellow-500 text-white font-bold py-2 px-4 rounded transition duration-300">
+              Skip Turn
+            </button>
+            <button (click)="resetGame()" 
+                    class="bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded transition duration-300">
+              Reset Game
+            </button>
+          </div>
+        </div>
+      }
     </div>
   }
 
-  @if(gameEnded()) {
-    <div class="w-full max-w-md bg-white p-6 sm:p-8 rounded-xl shadow-lg text-center">
-      <h2 class="text-3xl sm:text-4xl font-bold text-gray-800 mb-6">Game Over!</h2>
-      <h3 class="text-xl sm:text-2xl font-semibold text-gray-700 mb-4">Final Scores:</h3>
-      <ol class="scoreboard list-decimal list-inside space-y-2 mb-6">
-        @for(score of scores(); track score.nickname; let i = $index) {
-          <li class="flex items-center justify-between p-3 bg-gray-50 rounded-lg shadow-sm">
-            <span class="font-medium text-gray-800">{{i + 1}}. {{score.nickname}}</span>
-            <span class="text-lg font-bold text-blue-600">{{score.score}} points</span>
+  @if(isJoined() && gameEnded()) {
+    <div class="w-full max-w-lg bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl text-center border border-gray-700">
+      <h2 class="text-2xl sm:text-3xl font-bold text-white mb-6">🎉 Game Over!</h2>
+      
+      <h3 class="text-xl font-semibold text-yellow-400 mb-4">🏆 Final Scores:</h3>
+      <ul class="space-y-2 mb-6">
+        @for(score of scores(); track score.nickname) {
+          <li class="flex justify-between items-center p-3 bg-gray-700 rounded-lg border border-gray-600">
+            <span class="font-medium text-white">{{score.nickname}}</span>
+            <span class="text-gray-300">{{score.score}} points</span>
           </li>
         }
-      </ol>
+      </ul>
+      
       @if(isHost()) {
-        <button (click)="resetGame()"
-                class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 shadow-md">
-          Play Again (Host Only)
+        <button (click)="resetGame()" 
+                class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-4 rounded-lg transition duration-300 shadow-lg hover:shadow-xl">
+          Play Again
         </button>
+      } @else {
+        <p class="text-gray-400">Waiting for host to start a new game...</p>
       }
-      <button (click)="gameEnded.set(false); isJoined.set(false); players.set([]); room.set(''); nickname.set('');"
-              class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 shadow-md">
-        Back to Room Selection
-      </button>
     </div>
   }
 
-  <div id="yt-player" class="hidden"></div>
 </div>

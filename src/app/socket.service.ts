@@ -7,6 +7,7 @@ interface Player {
   nickname: string;
   hasUploaded: boolean;
   score: number;
+  spotifyTrack?: any; // Spotify track data if available
 }
 
 // Interface for room update data received from server
@@ -27,11 +28,10 @@ interface GameScore {
 interface TurnChangedData {
   currentPlayerId: string;
   currentPlayerNickname: string;
-  currentMusicUrl: string;
-  currentMusicStartTime: number; // Includes the start time for the music
   songTitle: string | null; // Actual title of the song for the current turn
   songArtist: string | null; // Actual artist of the song for the current turn
   turnEndTime: number; // Timestamp (milliseconds) when the current turn ends
+  spotifyTrack?: any; // Spotify track data if available
 }
 
 // Interface for a chat message, including optional guess result properties
@@ -59,9 +59,12 @@ export class SocketService {
 
   // Establishes connection to the Socket.IO server
   connect(): void {
-    // IMPORTANT: REPLACE THIS URL with the actual public URL of your deployed Node.js backend.
-    // Example: this.socket = io('https://your-music-guesser-backend.onrender.com');
-    this.socket = io('https://music-guesser-backend-whu4.onrender.com'); 
+    // Use localhost for development, Render URL for production
+    const isDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const backendUrl = isDevelopment ? 'http://localhost:3000' : 'https://music-guesser-backend-whu4.onrender.com';
+    
+    // Connecting to backend
+    this.socket = io(backendUrl); 
   }
 
   // Emits 'join-room' event to server
@@ -78,12 +81,6 @@ export class SocketService {
     });
   }
 
-  // Emits 'submit-song' event to server
-  submitSong(room: string, youtubeUrl: string): Promise<{ success: boolean; allUploaded?: boolean; message?: string }> {
-    return new Promise((resolve) => {
-      this.socket.emit('submit-song', { room, youtubeUrl }, resolve);
-    });
-  }
 
   // Emits 'start-game' event to server (host only), now accepts turnDuration
   startGame(room: string, turnDuration: number): Promise<{ success: boolean; message?: string }> {
@@ -138,6 +135,31 @@ export class SocketService {
   onChatMessage(): Observable<ChatMessage> {
     return new Observable((observer) => {
       this.socket.on('chat-message', (data: ChatMessage) => observer.next(data));
+    });
+  }
+
+  // Listens for 'show-answer' events from server
+  onShowAnswer(): Observable<{ songTitle: string; songArtist: string; spotifyTrack?: any }> {
+    return new Observable((observer) => {
+      this.socket.on('show-answer', (data) => observer.next(data));
+    });
+  }
+
+  // Search Spotify tracks with session authentication
+  searchSpotify(query: string, sessionId: string): Promise<{ success: boolean; tracks?: any[]; message?: string }> {
+    return new Promise((resolve) => {
+      // Emitting search-spotify
+      this.socket.emit('search-spotify', { query, sessionId }, (response: any) => {
+        // Received search-spotify response
+        resolve(response);
+      });
+    });
+  }
+
+  // Submit Spotify track
+  submitSpotifyTrack(room: string, track: any): Promise<{ success: boolean; allUploaded?: boolean; message?: string }> {
+    return new Promise((resolve) => {
+      this.socket.emit('submit-spotify-track', { room, trackData: track }, resolve);
     });
   }
 }

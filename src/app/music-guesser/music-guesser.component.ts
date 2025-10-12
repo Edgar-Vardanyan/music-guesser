@@ -2,6 +2,7 @@ import { Component, signal, effect, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SocketService } from '../socket.service';
+import { SpotifyAuthService } from '../spotify-auth.service';
 
 // Re-using the ChatMessage interface from SocketService for type safety
 interface ChatMessage {
@@ -29,22 +30,33 @@ export class MusicGuesserComponent implements OnDestroy {
   nickname = signal('');
   isJoined = signal(false);
   isHost = signal(false);
+  showingAnswer = signal(false);
+  answerData = signal<{ songTitle: string; songArtist: string; spotifyTrack?: any } | null>(null);
 
   // Player and game details
-  players = signal<{ nickname: string; hasUploaded: boolean; score: number }[]>([]);
+  players = signal<{ nickname: string; hasUploaded: boolean; score: number; spotifyTrack?: any }[]>([]);
   gameStarted = signal(false); // True when game is in progress
   gameEnded = signal(false); // True when game has completed all rounds
 
-  // Song submission and playback
-  youtubeUrl = signal('');
-  volumeControl = signal(50); // Changed to a signal for reactivity with effect
+  // Volume control
+  volumeControl = signal(50);
+  
+  // Spotify integration
+  spotifySearchQuery = '';
+  spotifySearchResults = signal<any[]>([]);
+  selectedSpotifyTrack = signal<any>(null);
+  spotifyAudioPlayer: HTMLAudioElement | null = null;
 
   // Current turn information
   currentTurnNickname = signal('');
-  currentMusicUrl = signal('');
   currentTurnId = signal(''); // ID of the player whose turn it is
-  currentMusicStartTime = signal(0); // Start time for the current YouTube video
   private turnEndTime: number = 0; // Server-provided timestamp for when the current turn ends
+  
+  // Current Spotify track
+  currentSpotifyTrack = signal<any>(null);
+  
+  // Audio interaction flag
+  audioEnabled = false;
 
   // Chat functionality
   chatInput = ''; // Input field for chat messages
@@ -64,11 +76,6 @@ export class MusicGuesserComponent implements OnDestroy {
   // Custom message display
   message = signal<{ text: string, isError: boolean } | null>(null); // For displaying user messages (success/error)
 
-  // YouTube Player instance and state
-  private player: any = null; // YouTube Iframe API player object
-  private playerReady = false; // Flag to indicate if YT player is initialized
-  private pendingVideoId: string | null = null; // Video to load once player is ready
-  private pendingStartTime: number = 0; // Start time for the pending video
 
   // Turn timer
   private timeLeft = 30; // Seconds left in current turn, now updated from server
@@ -83,34 +90,37 @@ export class MusicGuesserComponent implements OnDestroy {
   private _revealedLetterCount: number = 0; // Count of letters revealed so far this turn
   private readonly REVEAL_STOP_PERCENTAGE = 0.8; // Stop revealing when 80% of letters are shown
 
-  constructor(public socketService: SocketService) {
+  constructor(public socketService: SocketService, public spotifyAuth: SpotifyAuthService) {
+    // Enable audio on first user interaction
+    this.enableAudioOnInteraction();
+    
     // Effect to react to changes in gameEnded signal for debugging and immediate UI/timer actions
     effect(() => {
-      console.log(`[FRONTEND] Effect: gameEnded signal changed to: ${this.gameEnded()}.`);
+      // Game ended effect
       if (this.gameEnded()) {
         this.clearTimer(); // Stop any active main timer
         this.clearRevealTimer(); // Stop any active reveal timer
-        if (this.player) {
-          this.player.stopVideo(); // Stop any music playing
+        if (this.spotifyAudioPlayer) {
+          this.spotifyAudioPlayer.pause(); // Stop any music playing
         }
         this.showMessage('Game Over! Check final scores and Play Again.', false);
       }
     });
 
-    // Effect to control YouTube player volume
+    // Effect to control Spotify audio volume
     effect(() => {
       const volume = this.volumeControl(); // Get the current volume from the signal
-      if (this.playerReady && this.player && typeof this.player.setVolume === 'function') {
-        console.log(`[FRONTEND] Effect - Setting player volume to: ${volume}`);
-        this.player.setVolume(volume);
-      } else {
-        console.warn(`[FRONTEND] Effect - Attempted to set volume, but player not ready or setVolume function not available. Player Ready: ${this.playerReady}, Player: ${!!this.player}`);
+      
+      // Control Spotify audio volume
+      if (this.spotifyAudioPlayer) {
+        // Setting audio volume
+        this.spotifyAudioPlayer.volume = volume / 100;
       }
     });
 
     // Subscribe to room updates from the server
     this.socketService.onRoomUpdate().subscribe((update) => {
-      console.log('[FRONTEND] Room Update Received:', update);
+      // Room update received
       this.players.set(update.players);
       this.isHost.set(update.hostId === this.socketService.socket.id);
       this.gameStarted.set(update.gameStarted);
@@ -119,7 +129,7 @@ export class MusicGuesserComponent implements OnDestroy {
 
     // Subscribe to game started event from the server
     this.socketService.onGameStarted().subscribe((data) => { // Data now includes turnDuration
-      console.log('[FRONTEND] Game Started event received. Turn queue:', data.turnQueue, 'Turn duration:', data.turnDuration);
+      // Game started event received
       this.gameStarted.set(true);
       this.gameEnded.set(false);   // Game has just started, so it's not ended
       this.chatMessages.set([]);  // Clear chat history for new game
@@ -139,13 +149,13 @@ export class MusicGuesserComponent implements OnDestroy {
 
     // Subscribe to turn changed event from the server
     this.socketService.onTurnChanged().subscribe((data) => {
-      console.log('[FRONTEND] onTurnChanged: Raw data received from server:', data);
-      const { currentPlayerId, currentPlayerNickname, currentMusicUrl, currentMusicStartTime, songTitle, songArtist, turnEndTime } = data;
+      // Turn changed event received
+      const { currentPlayerId, currentPlayerNickname, songTitle, songArtist, turnEndTime, spotifyTrack } = data;
 
       // === REVEAL LOGIC FOR PREVIOUS TURN'S SONG ===
       // If there was a song playing in the previous turn, reveal its details now.
       if (this._actualTitle !== null || this._actualArtist !== null) { 
-        console.log(`[FRONTEND] Revealing previous song. Title: "${this._actualTitle}", Artist: "${this._actualArtist}"`);
+        // Revealing previous song
         // Force full reveal of the previous song's details in the display
         this.revealedTitle.set(this._actualTitle || 'Unknown Title');
         this.revealedArtist.set(this._actualArtist || 'Unknown Artist');
@@ -157,14 +167,15 @@ export class MusicGuesserComponent implements OnDestroy {
       // === SETUP FOR NEW TURN ===
       this.currentTurnNickname.set(currentPlayerNickname);
       this.currentTurnId.set(currentPlayerId);
-      this.currentMusicUrl.set(currentMusicUrl);
-      this.currentMusicStartTime.set(Number(currentMusicStartTime) || 0);
       this.turnEndTime = turnEndTime; // Store the server-provided turn end time
+      
+      // Set current Spotify track
+      this.currentSpotifyTrack.set(spotifyTrack);
 
       // Store the new song's actual details for revelation at the *next* turn change
       this._actualTitle = songTitle;
       this._actualArtist = songArtist;
-      console.log(`[FRONTEND] Storing actual current turn song: Title="${this._actualTitle}", Artist="${this._actualArtist}"`);
+      // Storing current turn song
 
       // Initialize the displayed title/artist with underscores and start revealing letters
       this.initializeRevealedDisplay();
@@ -174,27 +185,64 @@ export class MusicGuesserComponent implements OnDestroy {
       this.message.set(null); // Clear any temporary messages
       this.chatMessages.update(messages => [...messages, { nickname: 'System', message: `It's ${currentPlayerNickname}'s turn!`, timestamp: Date.now() }]);
 
-      const videoId = this.getYoutubeId(currentMusicUrl);
-      console.log(`[FRONTEND] OnTurnChanged - Loading video: "${videoId}" from start time: ${this.currentMusicStartTime()}.`);
-      if (this.playerReady) {
-        this.player.loadVideoById(videoId, this.currentMusicStartTime());
-        this.player.playVideo();
+      // Play Spotify preview if available
+      if (spotifyTrack && spotifyTrack.preview_url) {
+        // Playing Spotify preview
+        this.playSpotifyPreview(spotifyTrack.preview_url);
       } else {
-        this.pendingVideoId = videoId;
-        this.pendingStartTime = this.currentMusicStartTime();
+        // No preview available
+        
+        // Show message to players about missing preview
+        this.showMessage(`No preview available for "${spotifyTrack?.name}". Players will guess based on the song title and artist.`, false);
+        
+        // Add chat message about missing preview
+        this.chatMessages.update(messages => [...messages, { 
+          nickname: 'System', 
+          message: `No audio preview available for this song. Guess based on the title and artist!`, 
+          timestamp: Date.now() 
+        }]);
       }
+    });
+
+    // Subscribe to show answer event from the server
+    this.socketService.onShowAnswer().subscribe((answerData) => {
+      // Show answer event received
+      this.showingAnswer.set(true);
+      this.answerData.set(answerData);
+      
+      // Stop any current audio
+      if (this.spotifyAudioPlayer) {
+        this.spotifyAudioPlayer.pause();
+      }
+      
+      // Clear timers
+      this.clearTimer();
+      this.clearRevealTimer();
+      
+      // Add chat message about the answer
+      this.chatMessages.update(messages => [...messages, { 
+        nickname: 'System', 
+        message: `🎵 The answer was: "${answerData.songTitle}" by ${answerData.songArtist}`, 
+        timestamp: Date.now() 
+      }]);
+      
+      // Auto-hide answer after 5 seconds
+      setTimeout(() => {
+        this.showingAnswer.set(false);
+        this.answerData.set(null);
+      }, 5000);
     });
 
     // Subscribe to game ended event from the server
     this.socketService.onGameEnded().subscribe(({ scores }) => {
-      console.log('[FRONTEND] Game Ended event received. Final Scores:', scores);
+      // Game ended event received
       this.gameStarted.set(false); // Game is no longer in progress
       this.gameEnded.set(true);   // Game has now explicitly ended
       this.scores.set(scores); // Display final scores
       this.clearTimer(); // Stop any active main timer
       this.clearRevealTimer(); // Stop any active reveal timer
-      if (this.player) {
-        this.player.stopVideo(); // Stop music playback
+      if (this.spotifyAudioPlayer) {
+        this.spotifyAudioPlayer.pause(); // Stop music playback
       }
       this.showMessage('Game Over! Check final scores and Play Again.', false);
       this.chatMessages.update(messages => [...messages, { nickname: 'System', message: `Game Over! Final scores are displayed.`, timestamp: Date.now() }]);
@@ -202,7 +250,7 @@ export class MusicGuesserComponent implements OnDestroy {
       // === REVEAL FINAL SONG AT GAME END ===
       // Ensure the very last song's answer is revealed when the game concludes
       if (this._actualTitle !== null || this._actualArtist !== null) {
-        console.log(`[FRONTEND] Revealing final song at game end: Title: "${this._actualTitle}", Artist: "${this._actualArtist}"`);
+        // Revealing final song
         this.revealedTitle.set(this._actualTitle || 'Unknown Title');
         this.revealedArtist.set(this._actualArtist || 'Unknown Artist');
         this.chatMessages.update(messages => [...messages, { nickname: 'System', message: `The final song was: "${this._actualArtist || 'Unknown Artist'} - ${this._actualTitle || 'Unknown Title'}"`, timestamp: Date.now() }]);
@@ -211,7 +259,7 @@ export class MusicGuesserComponent implements OnDestroy {
 
     // Subscribe to chat messages from the server
     this.socketService.onChatMessage().subscribe((chatMsg) => {
-      console.log('[FRONTEND] Chat Message Received:', chatMsg);
+      // Chat message received
       this.chatMessages.update(messages => [...messages, chatMsg]);
       
       // Auto-scroll chat to bottom
@@ -223,15 +271,15 @@ export class MusicGuesserComponent implements OnDestroy {
       }, 0);
     });
 
-    this.loadYouTubeAPI(); // Initialize YouTube Iframe API
   }
 
   // Lifecycle hook: called when component is destroyed
   ngOnDestroy() {
     this.clearTimer(); // Clear any active main timer to prevent memory leaks
     this.clearRevealTimer(); // Clear any active reveal timer
-    if (this.player) {
-      this.player.destroy(); // Destroy YouTube player instance to release resources
+    if (this.spotifyAudioPlayer) {
+      this.spotifyAudioPlayer.pause();
+      this.spotifyAudioPlayer = null;
     }
   }
 
@@ -247,15 +295,15 @@ export class MusicGuesserComponent implements OnDestroy {
         // If time runs out, and it's the host and game is active, auto-advance turn
         // The backend's timer will also fire, ensuring synchronization.
         if (this.isHost() && this.gameStarted() && !this.gameEnded()) {
-          console.log('[FRONTEND] Client timer ended, host auto-advancing turn (backend also handling).');
+          // Client timer ended, host auto-advancing
           // No need to explicitly call socketService.nextTurn() here, as the backend will handle it.
           // This client-side timer is primarily for display.
         } else if (this.gameStarted() && !this.gameEnded()) {
           // If not host, just clear the timer and wait for backend's turn-changed event
-          console.log('[FRONTEND] Client timer ended, not host. Waiting for backend turn change.');
+          // Client timer ended, waiting for backend
         } else {
            // If timer ends but game is not active, just clear the timer
-           console.log('[FRONTEND] Timer ended, but game is not active (started or ended). Clearing timer.');
+           // Timer ended, game not active
         }
         this.clearTimer(); // Always clear the client-side timer when it reaches zero
       }
@@ -273,7 +321,7 @@ export class MusicGuesserComponent implements OnDestroy {
     if (this.timerInterval) {
       clearInterval(this.timerInterval);
       this.timerInterval = null;
-      console.log('[FRONTEND] Main timer cleared.');
+      // Main timer cleared
     }
   }
 
@@ -294,7 +342,7 @@ export class MusicGuesserComponent implements OnDestroy {
     const artistToDisplay = this._actualArtist ? this.getUnderscoredString(this._actualArtist) : '???';
     this.revealedTitle.set(titleToDisplay);
     this.revealedArtist.set(artistToDisplay);
-    console.log(`[FRONTEND] Initialized revealed display. Total revealable letters: ${this._totalRevealableLetters}. Current display: "${this.revealedTitle()}" - "${this.revealedArtist()}"`);
+    // Initialized revealed display
   }
 
   // Helper to convert text to underscores, preserving spaces, hyphens, and numbers
@@ -315,7 +363,7 @@ export class MusicGuesserComponent implements OnDestroy {
     this.revealLetterInterval = setInterval(() => {
       this.revealRandomLetter();
     }, REVEAL_INTERVAL_MS);
-    console.log('[FRONTEND] Reveal timer started.');
+    // Reveal timer started
   }
 
   // Clears the letter revelation timer
@@ -323,7 +371,7 @@ export class MusicGuesserComponent implements OnDestroy {
     if (this.revealLetterInterval) {
       clearInterval(this.revealLetterInterval);
       this.revealLetterInterval = null;
-      console.log('[FRONTEND] Reveal timer cleared.');
+      // Reveal timer cleared
     }
   }
 
@@ -332,7 +380,7 @@ export class MusicGuesserComponent implements OnDestroy {
     // Stop if a certain percentage of letters have been revealed
     if (this._totalRevealableLetters > 0 && 
         (this._revealedLetterCount / this._totalRevealableLetters) >= this.REVEAL_STOP_PERCENTAGE) {
-      console.log(`[FRONTEND] Revelation stopped: ${this._revealedLetterCount}/${this._totalRevealableLetters} revealed (${((this._revealedLetterCount / this._totalRevealableLetters) * 100).toFixed(0)}%).`);
+      // Revelation stopped
       this.clearRevealTimer();
       return;
     }
@@ -372,13 +420,13 @@ export class MusicGuesserComponent implements OnDestroy {
         const revealedChars = this.revealedTitle().split('');
         revealedChars[randomChoice.index] = actualChars[randomChoice.index];
         this.revealedTitle.set(revealedChars.join(''));
-        console.log(`[FRONTEND] Revealed letter in title: "${actualChars[randomChoice.index]}" at index ${randomChoice.index}. New title: "${this.revealedTitle()}"`);
+        // Revealed letter in title
       } else { // type === 'artist'
         const actualChars = this._actualArtist!.split(''); // ! asserts non-null
         const revealedChars = this.revealedArtist().split('');
         revealedChars[randomChoice.index] = actualChars[randomChoice.index];
         this.revealedArtist.set(revealedChars.join(''));
-        console.log(`[FRONTEND] Revealed letter in artist: "${actualChars[randomChoice.index]}" at index ${randomChoice.index}. New artist: "${this.revealedArtist()}"`);
+        // Revealed letter in artist
       }
       this._revealedLetterCount++;
       revealedSomething = true;
@@ -387,7 +435,7 @@ export class MusicGuesserComponent implements OnDestroy {
     // If nothing new was revealed (meaning both are fully revealed or hit threshold), clear the timer
     if (!revealedSomething || (this._totalRevealableLetters > 0 && (this._revealedLetterCount / this._totalRevealableLetters) >= this.REVEAL_STOP_PERCENTAGE)) {
       this.clearRevealTimer();
-      console.log('[FRONTEND] No more letters to reveal or revelation threshold reached. Stopping reveal timer.');
+      // No more letters to reveal
     }
   }
 
@@ -422,10 +470,7 @@ export class MusicGuesserComponent implements OnDestroy {
       this.players.set([]); // Clear players list
       this.chatMessages.set([]); // Clear chat history
       this.scores.set([]);
-      this.youtubeUrl.set('');
       this.chatInput = ''; // Clear chat input
-      this.currentMusicUrl.set('');
-      this.currentMusicStartTime.set(0);
       this.currentTurnId.set('');
       this.currentTurnNickname.set('');
       this.turnDuration.set(30); // Reset turn duration to default on join
@@ -440,33 +485,12 @@ export class MusicGuesserComponent implements OnDestroy {
       this._revealedLetterCount = 0;
 
       this.clearTimer(); // Clear main timer
-      if (this.player) this.player.stopVideo(); // Stop any lingering music
+      if (this.spotifyAudioPlayer) this.spotifyAudioPlayer.pause(); // Stop any lingering music
     } else {
       this.showMessage(res.message || 'Failed to join room.', true);
     }
   }
 
-  // Handles submitting a song URL
-  async submitSong() {
-    if (!this.youtubeUrl()) {
-      this.showMessage('Please enter a YouTube URL to submit your song.', true);
-      return;
-    }
-    // Prevent submitting songs if the game has ended
-    if (this.gameEnded()) {
-        this.showMessage('Game has ended. Please reset the game to upload new songs.', true);
-        return;
-    }
-    const res = await this.socketService.submitSong(this.room(), this.youtubeUrl());
-    if (!res.success) {
-      this.showMessage(res.message || 'Failed to submit song.', true);
-    } else {
-      this.showMessage('Song submitted successfully!', false);
-      if (res.allUploaded && this.isHost()) {
-        this.showMessage('All players have uploaded songs! You can now start the game.', false);
-      }
-    }
-  }
 
   // Handles starting the game (host only)
   async startGame() {
@@ -496,47 +520,49 @@ export class MusicGuesserComponent implements OnDestroy {
 
   // Handles submitting a chat message (which might contain a guess)
   async sendChatMessage() {
-    console.log('[FRONTEND] sendChatMessage called.');
+    // Send chat message called
     const message = this.chatInput.trim();
-    console.log('[FRONTEND] Message to send:', message);
     if (!message) {
-      console.log('[FRONTEND] Message is empty, returning.');
       return;
     }
 
     if (!this.isJoined()) {
       this.showMessage('You must join a room to chat.', true);
-      console.log('[FRONTEND] Not joined to a room, returning.');
+      // Not joined to a room
       return;
     }
 
     // Emit the chat message to the server
-    console.log('[FRONTEND] Attempting to send chat message via socketService.sendChatMessage...');
+    // Attempting to send chat message
     const res = await this.socketService.sendChatMessage(this.room(), message);
     if (!res.success) {
       this.showMessage(res.message || 'Failed to send message.', true);
-      console.error('[FRONTEND] Failed to send chat message:', res.message);
-    } else {
-      console.log('[FRONTEND] Chat message sent successfully.');
+      // Failed to send chat message
     }
     this.chatInput = ''; // Clear chat input after sending
-    console.log('[FRONTEND] chatInput cleared.');
+    // Chat input cleared
   }
 
 
-  // Pauses YouTube music playback
+  // Pauses music playback (Spotify)
   pauseMusic() {
-    if (this.playerReady && this.gameStarted() && !this.gameEnded()) {
-      this.player.pauseVideo();
+    if (this.gameStarted() && !this.gameEnded()) {
+      // Pause Spotify audio if playing
+      if (this.spotifyAudioPlayer) {
+        this.pauseSpotifyPreview();
+      }
     } else {
       this.showMessage('Music cannot be paused when the game is not active.', true);
     }
   }
 
-  // Resumes YouTube music playback
+  // Resumes music playback (Spotify)
   resumeMusic() {
-    if (this.playerReady && this.gameStarted() && !this.gameEnded()) {
-      this.player.playVideo();
+    if (this.gameStarted() && !this.gameEnded()) {
+      // Resume Spotify audio if available
+      if (this.spotifyAudioPlayer) {
+        this.resumeSpotifyPreview();
+      }
     } else {
       this.showMessage('Music cannot be resumed when the game is not active.', true);
     }
@@ -573,7 +599,7 @@ export class MusicGuesserComponent implements OnDestroy {
         return;
     }
 
-    console.log('[FRONTEND] Host initiating game reset. Current gameEnded state:', this.gameEnded());
+    // Host initiating game reset
     const res = await this.socketService.resetGame(this.room());
     if (res.success) {
       this.showMessage('Game reset successfully! Players can now upload new songs.', false);
@@ -582,9 +608,6 @@ export class MusicGuesserComponent implements OnDestroy {
       this.chatInput = '';
       this.chatMessages.set([]);
       this.scores.set([]);
-      this.youtubeUrl.set('');
-      this.currentMusicUrl.set('');
-      this.currentMusicStartTime.set(0);
       this.currentTurnId.set('');
       this.currentTurnNickname.set('');
       this.turnDuration.set(30); // Reset turn duration to default on reset
@@ -599,80 +622,18 @@ export class MusicGuesserComponent implements OnDestroy {
       this._revealedLetterCount = 0;
 
       this.clearTimer();
-      if (this.player) {
-        this.player.stopVideo();
+      if (this.spotifyAudioPlayer) {
+        this.spotifyAudioPlayer.pause();
       }
     } else {
       this.showMessage(res.message || 'Failed to reset game.', true);
     }
   }
 
-  // Extracts YouTube video ID from a URL
-  getYoutubeId(url: string): string {
-    const regExp = /(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([\w-]{11})/;
-    const match = url.match(regExp);
-    return match ? match[1] : '';
-  }
-
-  // Loads the YouTube Iframe API script
-  private loadYouTubeAPI() {
-    if ((window as any).YT) { // Check if API is already loaded
-      this.initPlayer();
-      return;
-    }
-
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    document.body.appendChild(tag);
-
-    (window as any).onYouTubeIframeAPIReady = () => { // Callback when API is ready
-      this.initPlayer();
-    };
-  }
-
-  // Initializes the YouTube player
-  private initPlayer() {
-    this.player = new (window as any).YT.Player('yt-player', {
-      height: '0', // Keep player hidden (audio-only game)
-      width: '0',  // Keep player hidden
-      playerVars: {
-        controls: 0, // No player controls
-        disablekb: 1, // Disable keyboard controls
-        autoplay: 1, // Autoplay when loaded (browser policies might override)
-        modestbranding: 1, // Minimal YouTube branding
-      },
-      events: {
-        onReady: (event: any) => {
-          this.playerReady = true;
-          const initialVolume = this.volumeControl(); // Get the initial volume from the signal
-          console.log(`[FRONTEND] initPlayer onReady - Player ready. Attempting to set initial volume to: ${initialVolume}`);
-          event.target.setVolume(initialVolume);
-          
-          // Check if player is muted by default due to browser policy and unMute if necessary
-          if (typeof event.target.isMuted === 'function' && event.target.isMuted()) {
-            event.target.unMute();
-            console.log('[FRONTEND] initPlayer onReady - Player was muted by browser, unmuting.');
-          }
-
-          if (this.pendingVideoId) { // If a video was queued while player was loading
-            console.log('[FRONTEND] InitPlayer - Loading pending video:', this.pendingVideoId, 'from pending start time:', this.pendingStartTime);
-            this.player.loadVideoById(this.pendingVideoId, this.pendingStartTime);
-            this.player.playVideo();
-            this.pendingVideoId = null;
-            this.pendingStartTime = 0;
-          }
-        },
-        // onStateChange event is not used to advance turns directly
-        // because turn advancement is managed by the host's timer/skip.
-      },
-    });
-  }
 
   // Checks if all players have uploaded their songs
   allPlayersUploaded(): boolean {
-    const areAllUploaded = this.players()?.every(p => p.hasUploaded) ?? false;
-    console.log(`[FRONTEND] allPlayersUploaded check: ${areAllUploaded}`);
-    return areAllUploaded;
+    return this.players()?.every(p => p.hasUploaded) ?? false;
   }
 
   // Getter for displaying time left
@@ -682,14 +643,232 @@ export class MusicGuesserComponent implements OnDestroy {
 
   // Determines if the current player can guess (not their own turn, game active)
   get canGuess(): boolean {
-    // Players can always chat, but their messages are only processed as guesses
-    // if it's not their turn, and the game is active.
-    return this.currentTurnId() !== this.socketService.socket.id && this.gameStarted() && !this.gameEnded();
+    return this.currentTurnId() !== this.socketService.socket.id && 
+           this.gameStarted() && 
+           !this.gameEnded();
   }
 
   // Formats timestamp for chat display
   formatTimestamp(timestamp: number): string {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return new Date(timestamp).toLocaleTimeString([], { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
   }
+
+  // === SPOTIFY INTEGRATION METHODS ===
+
+  // Search Spotify tracks
+  async searchSpotifySongs() {
+    if (this.spotifySearchQuery.length < 3) {
+      this.spotifySearchResults.set([]);
+      return;
+    }
+
+    // Check if user is authenticated
+    if (!this.spotifyAuth.isAuthenticated()) {
+      this.showMessage('Please log in to Spotify first to search for songs', true);
+      return;
+    }
+
+    const sessionId = this.spotifyAuth.getSessionId();
+    if (!sessionId) {
+      this.showMessage('Authentication error. Please log in again.', true);
+      return;
+    }
+
+    try {
+      const response = await this.socketService.searchSpotify(this.spotifySearchQuery, sessionId);
+      
+      if (response.success && response.tracks) {
+        this.spotifySearchResults.set(response.tracks);
+      } else {
+        this.spotifySearchResults.set([]);
+        this.showMessage(response.message || 'Spotify search failed', true);
+        // Spotify search failed
+      }
+    } catch (error) {
+      // Spotify search error
+      this.spotifySearchResults.set([]);
+      this.showMessage('Spotify search failed. Please try again.', true);
+    }
+  }
+
+  // Select a Spotify track
+  selectSpotifyTrack(track: any) {
+    this.selectedSpotifyTrack.set(track);
+    this.spotifySearchResults.set([]);
+  }
+
+  // Submit selected Spotify track
+  async submitSpotifyTrack() {
+    const track = this.selectedSpotifyTrack();
+    if (!track) {
+      this.showMessage('Please select a song first.', true);
+      return;
+    }
+
+    if (this.gameEnded()) {
+      this.showMessage('Game has ended. Please reset the game to upload new songs.', true);
+      return;
+    }
+
+    try {
+      const response = await this.socketService.submitSpotifyTrack(this.room(), track);
+      
+      if (response.success) {
+        this.showMessage('Song submitted successfully!', false);
+        this.selectedSpotifyTrack.set(null);
+        this.spotifySearchQuery = '';
+        
+        if (response.allUploaded && this.isHost()) {
+          this.showMessage('All players have uploaded songs! You can now start the game.', false);
+        }
+      } else {
+        this.showMessage(response.message || 'Failed to submit song.', true);
+      }
+    } catch (error) {
+      // Failed to submit Spotify track
+      this.showMessage('Failed to submit song.', true);
+    }
+  }
+
+
+  // Pause Spotify preview
+  pauseSpotifyPreview() {
+    if (this.spotifyAudioPlayer) {
+      this.spotifyAudioPlayer.pause();
+    }
+  }
+
+  // Resume Spotify preview
+  resumeSpotifyPreview() {
+    if (this.spotifyAudioPlayer) {
+      this.spotifyAudioPlayer.play();
+    }
+  }
+
+  // Format duration from milliseconds
+  formatDuration(durationMs: number): string {
+    const minutes = Math.floor(durationMs / 60000);
+    const seconds = Math.floor((durationMs % 60000) / 1000);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }
+
+  // Get artists names as comma-separated string
+  getArtistsNames(artists: any[]): string {
+    return artists.map(artist => artist.name).join(', ');
+  }
+
+  // Enable audio on first user interaction to bypass autoplay restrictions
+  private enableAudioOnInteraction() {
+    const enableAudio = () => {
+      this.audioEnabled = true;
+      // Audio enabled by user interaction
+      
+      // Try to play current track if one is loaded
+      if (this.spotifyAudioPlayer && this.currentSpotifyTrack()) {
+        this.spotifyAudioPlayer.play().catch(error => {
+          // Failed to resume audio after interaction
+        });
+      }
+      
+      // Remove event listeners after first interaction
+      document.removeEventListener('click', enableAudio);
+      document.removeEventListener('keydown', enableAudio);
+      document.removeEventListener('touchstart', enableAudio);
+    };
+
+    // Add event listeners for user interaction
+    document.addEventListener('click', enableAudio, { once: true });
+    document.addEventListener('keydown', enableAudio, { once: true });
+    document.addEventListener('touchstart', enableAudio, { once: true });
+  }
+
+  // Public method to enable audio (called by button click)
+  enableAudio() {
+    this.audioEnabled = true;
+    // Audio enabled by button click
+    
+    // Try to play current track if one is loaded
+    if (this.spotifyAudioPlayer && this.currentSpotifyTrack()) {
+      this.spotifyAudioPlayer.play().catch(error => {
+        // Failed to resume audio after button click
+      });
+    }
+    
+    // Remove event listeners
+    document.removeEventListener('click', this.enableAudio);
+    document.removeEventListener('keydown', this.enableAudio);
+    document.removeEventListener('touchstart', this.enableAudio);
+  }
+
+  // Test audio playback manually
+  testAudio() {
+    const track = this.currentSpotifyTrack();
+    if (track && track.preview_url) {
+      // Testing audio
+      
+      if (!this.audioEnabled) {
+        this.showMessage('Please enable audio first!', true);
+        return;
+      }
+      
+      this.playSpotifyPreview(track.preview_url);
+    } else {
+      // No track or preview URL available
+      this.showMessage('No audio track available to test', true);
+    }
+  }
+
+  // Play Spotify preview audio
+  async playSpotifyPreview(previewUrl: string) {
+    // Attempting to play Spotify preview
+    if (this.spotifyAudioPlayer) {
+      this.spotifyAudioPlayer.pause();
+    }
+    this.spotifyAudioPlayer = new Audio(previewUrl);
+    this.spotifyAudioPlayer.volume = this.volumeControl() / 100;
+    
+    // Add event listeners for debugging
+    this.spotifyAudioPlayer.addEventListener('loadstart', () => { /* Audio load started */ });
+    this.spotifyAudioPlayer.addEventListener('canplay', () => { /* Audio can play */ });
+    this.spotifyAudioPlayer.addEventListener('error', (e) => { /* Audio error */ });
+
+    if (!this.audioEnabled) {
+      // Audio not enabled yet
+      this.showMessage('Click anywhere to enable music playback!', false);
+      return;
+    }
+
+    try {
+      await this.spotifyAudioPlayer.play();
+      // Spotify preview started playing successfully
+    } catch (error) {
+      // Failed to play Spotify preview
+      if (error instanceof Error && error.name === 'NotAllowedError') {
+        this.showMessage('Music requires user interaction. Click anywhere to enable audio playback.', false);
+      }
+    }
+  }
+
+  // Format expiry time for display
+  formatExpiryTime(expiresAt: number): string {
+    const now = Date.now();
+    const timeLeft = expiresAt - now;
+    
+    if (timeLeft <= 0) {
+      return 'Expired';
+    }
+    
+    const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+    const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+    
+    if (hours > 0) {
+      return `in ${hours}h ${minutes}m`;
+    } else {
+      return `in ${minutes}m`;
+    }
+  }
+
 }
