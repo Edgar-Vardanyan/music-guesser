@@ -21,14 +21,16 @@ export class SpotifyAuthService {
   isLoading = signal<boolean>(false);
 
   private getBackendUrl(): string {
-    if (environment.production) {
-      // Production environment
-      return environment.backendUrl;
-    } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-      // Local development
+    // Check if we're running on localhost (development)
+    const isLocalhost = window.location.hostname === 'localhost' || 
+                       window.location.hostname === '127.0.0.1' ||
+                       window.location.hostname === '0.0.0.0';
+    
+    if (isLocalhost) {
+      // Local development - use localhost backend
       return 'http://localhost:3000';
     } else {
-      // Deployed frontend (not localhost) - use production backend
+      // Any other hostname (deployed frontend) - use production backend
       return 'https://music-guesser-backend-whu4.onrender.com';
     }
   }

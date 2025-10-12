@@ -63,19 +63,30 @@ export class SocketService {
     // Determine backend URL based on current hostname
     let backendUrl: string;
     
-    if (environment.production) {
-      // Production environment
-      backendUrl = environment.backendUrl;
-    } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-      // Local development
+    // Check if we're running on localhost (development)
+    const isLocalhost = window.location.hostname === 'localhost' || 
+                       window.location.hostname === '127.0.0.1' ||
+                       window.location.hostname === '0.0.0.0';
+    
+    if (isLocalhost) {
+      // Local development - use localhost backend
       backendUrl = 'http://localhost:3000';
     } else {
-      // Deployed frontend (not localhost) - use production backend
+      // Any other hostname (deployed frontend) - use production backend
       backendUrl = 'https://music-guesser-backend-whu4.onrender.com';
     }
     
     console.log('Connecting to backend:', backendUrl);
-    this.socket = io(backendUrl); 
+    console.log('Current hostname:', window.location.hostname);
+    console.log('Is localhost:', isLocalhost);
+    
+    this.socket = io(backendUrl);
+    
+    // Add error handling for connection failures
+    this.socket.on('connect_error', (error) => {
+      console.error('Socket connection error:', error);
+      console.log('Failed to connect to:', backendUrl);
+    }); 
   }
 
   // Emits 'join-room' event to server
