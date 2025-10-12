@@ -145,11 +145,6 @@
                         <p class="font-semibold text-white">{{track.name}}</p>
                         <p class="text-sm text-gray-300">{{getArtistsNames(track.artists)}}</p>
                         <p class="text-xs text-gray-400">{{track.album.name}}</p>
-                        @if (track.preview_url) {
-                          <p class="text-xs text-green-400">🎵 Preview Available</p>
-                        } @else {
-                          <p class="text-xs text-red-400">🔇 No Preview</p>
-                        }
                       </div>
                       <div class="text-xs text-gray-400">
                         {{formatDuration(track.duration_ms)}}
