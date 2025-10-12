@@ -60,10 +60,21 @@ export class SocketService {
 
   // Establishes connection to the Socket.IO server
   connect(): void {
-    // Use environment configuration for backend URL
-    const backendUrl = environment.backendUrl;
+    // Determine backend URL based on current hostname
+    let backendUrl: string;
     
-    // Connecting to backend
+    if (environment.production) {
+      // Production environment
+      backendUrl = environment.backendUrl;
+    } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      // Local development
+      backendUrl = 'http://localhost:3000';
+    } else {
+      // Deployed frontend (not localhost) - use production backend
+      backendUrl = 'https://music-guesser-backend-whu4.onrender.com';
+    }
+    
+    console.log('Connecting to backend:', backendUrl);
     this.socket = io(backendUrl); 
   }
 

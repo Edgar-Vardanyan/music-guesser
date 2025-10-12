@@ -13,12 +13,25 @@ export interface SpotifySession {
   providedIn: 'root'
 })
 export class SpotifyAuthService {
-  private readonly BACKEND_URL = environment.backendUrl;
+  private readonly BACKEND_URL = this.getBackendUrl();
 
   // Signals for reactive state management
   isAuthenticated = signal<boolean>(false);
   currentSession = signal<SpotifySession | null>(null);
   isLoading = signal<boolean>(false);
+
+  private getBackendUrl(): string {
+    if (environment.production) {
+      // Production environment
+      return environment.backendUrl;
+    } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      // Local development
+      return 'http://localhost:3000';
+    } else {
+      // Deployed frontend (not localhost) - use production backend
+      return 'https://music-guesser-backend-whu4.onrender.com';
+    }
+  }
 
   constructor(private http: HttpClient) {
     this.checkExistingSession();
