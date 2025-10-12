@@ -50,6 +50,38 @@ setInterval(() => {
 
 const rooms = {}; // Stores all active rooms and their states
 
+// Function to clean up song titles by removing common patterns
+function cleanSongTitle(title) {
+  return title
+    // Remove (feat. Artist) patterns
+    .replace(/\s*\(feat\.\s*[^)]+\)/gi, '')
+    // Remove (ft. Artist) patterns
+    .replace(/\s*\(ft\.\s*[^)]+\)/gi, '')
+    // Remove (featuring Artist) patterns
+    .replace(/\s*\(featuring\s*[^)]+\)/gi, '')
+    // Remove (with Artist) patterns
+    .replace(/\s*\(with\s*[^)]+\)/gi, '')
+    // Remove (vs. Artist) patterns
+    .replace(/\s*\(vs\.\s*[^)]+\)/gi, '')
+    // Remove (x Artist) patterns
+    .replace(/\s*\(x\s*[^)]+\)/gi, '')
+    // Remove (feat Artist) patterns (without period)
+    .replace(/\s*\(feat\s+[^)]+\)/gi, '')
+    // Remove (ft Artist) patterns (without period)
+    .replace(/\s*\(ft\s+[^)]+\)/gi, '')
+    // Remove (featuring Artist) patterns (without period)
+    .replace(/\s*\(featuring\s+[^)]+\)/gi, '')
+    // Remove (with Artist) patterns (without period)
+    .replace(/\s*\(with\s+[^)]+\)/gi, '')
+    // Remove (vs Artist) patterns (without period)
+    .replace(/\s*\(vs\s+[^)]+\)/gi, '')
+    // Remove (x Artist) patterns (without period)
+    .replace(/\s*\(x\s+[^)]+\)/gi, '')
+    // Clean up extra spaces
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 
 io.on('connection', (socket) => {
   // Client connected
@@ -185,7 +217,7 @@ io.on('connection', (socket) => {
       };
       
       // Use Spotify metadata for guessing (no parsing needed!)
-      roomObj.players[socket.id].songTitle = trackData.name;
+      roomObj.players[socket.id].songTitle = cleanSongTitle(trackData.name);
       roomObj.players[socket.id].songArtist = trackData.artists.map(a => a.name).join(', ');
       roomObj.players[socket.id].hasUploaded = true;
 

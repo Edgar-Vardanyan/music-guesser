@@ -88,7 +88,24 @@ export class MusicGuesserComponent implements OnDestroy {
   private revealLetterInterval: any; // Interval ID for the letter revelation timer
   private _totalRevealableLetters: number = 0; // Total alphabetic characters that can be revealed
   private _revealedLetterCount: number = 0; // Count of letters revealed so far this turn
-  private readonly REVEAL_STOP_PERCENTAGE = 0.8; // Stop revealing when 80% of letters are shown
+  // Dynamic reveal stop percentage based on text length
+  private getRevealStopPercentage(): number {
+    const totalLength = (this._actualTitle?.length || 0) + (this._actualArtist?.length || 0);
+    
+    if (totalLength <= 20) {
+      // Short text - reveal 60% of letters
+      return 0.6;
+    } else if (totalLength <= 40) {
+      // Medium text - reveal 70% of letters
+      return 0.7;
+    } else if (totalLength <= 60) {
+      // Long text - reveal 75% of letters
+      return 0.75;
+    } else {
+      // Very long text - reveal 80% of letters
+      return 0.8;
+    }
+  }
 
   constructor(public socketService: SocketService, public spotifyAuth: SpotifyAuthService) {
     // Enable audio on first user interaction
@@ -173,7 +190,7 @@ export class MusicGuesserComponent implements OnDestroy {
       this.currentSpotifyTrack.set(spotifyTrack);
 
       // Store the new song's actual details for revelation at the *next* turn change
-      this._actualTitle = songTitle;
+      this._actualTitle = songTitle ? this.cleanSongTitle(songTitle) : null;
       this._actualArtist = songArtist;
       // Storing current turn song
 
@@ -359,10 +376,28 @@ export class MusicGuesserComponent implements OnDestroy {
   // Starts the letter revelation timer
   private startRevealTimer(): void {
     this.clearRevealTimer(); // Clear any existing timer first
-    const REVEAL_INTERVAL_MS = 7000; // Reveal a letter every 7 seconds
+    
+    // Calculate dynamic reveal interval based on text length
+    const totalLength = (this._actualTitle?.length || 0) + (this._actualArtist?.length || 0);
+    let revealInterval: number;
+    
+    if (totalLength <= 20) {
+      // Short text (≤20 chars) - reveal every 10 seconds
+      revealInterval = 10000;
+    } else if (totalLength <= 40) {
+      // Medium text (21-40 chars) - reveal every 7 seconds
+      revealInterval = 7000;
+    } else if (totalLength <= 60) {
+      // Long text (41-60 chars) - reveal every 5 seconds
+      revealInterval = 5000;
+    } else {
+      // Very long text (>60 chars) - reveal every 3 seconds
+      revealInterval = 3000;
+    }
+    
     this.revealLetterInterval = setInterval(() => {
       this.revealRandomLetter();
-    }, REVEAL_INTERVAL_MS);
+    }, revealInterval);
     // Reveal timer started
   }
 
@@ -379,7 +414,7 @@ export class MusicGuesserComponent implements OnDestroy {
   private revealRandomLetter(): void {
     // Stop if a certain percentage of letters have been revealed
     if (this._totalRevealableLetters > 0 && 
-        (this._revealedLetterCount / this._totalRevealableLetters) >= this.REVEAL_STOP_PERCENTAGE) {
+        (this._revealedLetterCount / this._totalRevealableLetters) >= this.getRevealStopPercentage()) {
       // Revelation stopped
       this.clearRevealTimer();
       return;
@@ -433,12 +468,44 @@ export class MusicGuesserComponent implements OnDestroy {
     }
 
     // If nothing new was revealed (meaning both are fully revealed or hit threshold), clear the timer
-    if (!revealedSomething || (this._totalRevealableLetters > 0 && (this._revealedLetterCount / this._totalRevealableLetters) >= this.REVEAL_STOP_PERCENTAGE)) {
+    if (!revealedSomething || (this._totalRevealableLetters > 0 && (this._revealedLetterCount / this._totalRevealableLetters) >= this.getRevealStopPercentage())) {
       this.clearRevealTimer();
       // No more letters to reveal
     }
   }
 
+
+  // Cleans up song title by removing common patterns
+  private cleanSongTitle(title: string): string {
+    return title
+      // Remove (feat. Artist) patterns
+      .replace(/\s*\(feat\.\s*[^)]+\)/gi, '')
+      // Remove (ft. Artist) patterns
+      .replace(/\s*\(ft\.\s*[^)]+\)/gi, '')
+      // Remove (featuring Artist) patterns
+      .replace(/\s*\(featuring\s*[^)]+\)/gi, '')
+      // Remove (with Artist) patterns
+      .replace(/\s*\(with\s*[^)]+\)/gi, '')
+      // Remove (vs. Artist) patterns
+      .replace(/\s*\(vs\.\s*[^)]+\)/gi, '')
+      // Remove (x Artist) patterns
+      .replace(/\s*\(x\s*[^)]+\)/gi, '')
+      // Remove (feat Artist) patterns (without period)
+      .replace(/\s*\(feat\s+[^)]+\)/gi, '')
+      // Remove (ft Artist) patterns (without period)
+      .replace(/\s*\(ft\s+[^)]+\)/gi, '')
+      // Remove (featuring Artist) patterns (without period)
+      .replace(/\s*\(featuring\s+[^)]+\)/gi, '')
+      // Remove (with Artist) patterns (without period)
+      .replace(/\s*\(with\s+[^)]+\)/gi, '')
+      // Remove (vs Artist) patterns (without period)
+      .replace(/\s*\(vs\s+[^)]+\)/gi, '')
+      // Remove (x Artist) patterns (without period)
+      .replace(/\s*\(x\s+[^)]+\)/gi, '')
+      // Clean up extra spaces
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
 
   // Displays a temporary message to the user
   showMessage(text: string, isError: boolean = false) {
