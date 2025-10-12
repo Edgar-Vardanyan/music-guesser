@@ -19,9 +19,15 @@ const io = new Server(server, {
 });
 
 // Spotify API credentials
-const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID || '07dbd8533764444b9ce9a40da01accec';
-const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET || '1063e89f97534f43a96282022c585c73';
-const SPOTIFY_REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI || 'http://127.0.0.1:3000/auth/callback';
+const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
+const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
+const SPOTIFY_REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI;
+
+// Validate required environment variables
+if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET || !SPOTIFY_REDIRECT_URI) {
+  console.error('Missing required environment variables: SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI');
+  process.exit(1);
+}
 
 // User session storage (in production, use Redis or database)
 const userSessions = new Map(); // sessionId -> { accessToken, refreshToken, expiresAt, userId }
@@ -802,7 +808,9 @@ app.get('/auth/callback', async (req, res) => {
       // User logged in
       
       // Redirect to frontend with session token
-      res.redirect(`http://localhost:4200/?session=${sessionId}`);
+      // Redirect to frontend - use environment variable or default to localhost for development
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
+      res.redirect(`${frontendUrl}/?session=${sessionId}`);
       
     } catch (error) {
       // Callback error
