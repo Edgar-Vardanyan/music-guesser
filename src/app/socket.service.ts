@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { io, Socket } from 'socket.io-client';
 import { Observable } from 'rxjs';
+import { environment } from '../environments/environment';
 
 // Interface for player data
 interface Player {
@@ -59,9 +60,8 @@ export class SocketService {
 
   // Establishes connection to the Socket.IO server
   connect(): void {
-    // Use localhost for development, Render URL for production
-    const isDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const backendUrl = isDevelopment ? 'http://localhost:3000' : 'https://music-guesser-backend-whu4.onrender.com';
+    // Use environment configuration for backend URL
+    const backendUrl = environment.backendUrl;
     
     // Connecting to backend
     this.socket = io(backendUrl); 

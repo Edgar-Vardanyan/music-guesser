@@ -13,9 +13,7 @@ export interface SpotifySession {
   providedIn: 'root'
 })
 export class SpotifyAuthService {
-  private readonly BACKEND_URL = environment.production 
-    ? 'https://music-guesser-backend-whu4.onrender.com' 
-    : 'http://localhost:3000';
+  private readonly BACKEND_URL = environment.backendUrl;
 
   // Signals for reactive state management
   isAuthenticated = signal<boolean>(false);
