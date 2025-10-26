@@ -775,7 +775,7 @@ app.get('/auth/login', (req, res) => {
   });
   
   const authUrl = 'https://accounts.spotify.com/authorize?' + authQueryParameters.toString();
-  // Redirecting to Spotify
+  console.log('Redirecting to Spotify with redirect_uri:', SPOTIFY_REDIRECT_URI);
   
   res.redirect(authUrl);
 });
@@ -786,9 +786,8 @@ app.get('/auth/callback', async (req, res) => {
   const state = req.query.state || null;
   
   if (state === null) {
-    res.redirect('/#' + new URLSearchParams({
-      error: 'state_mismatch'
-    }).toString());
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
+    res.redirect(`${frontendUrl}/#error=state_mismatch`);
   } else {
     try {
       const authOptions = {
@@ -839,10 +838,11 @@ app.get('/auth/callback', async (req, res) => {
       res.redirect(`${frontendUrl}/?session=${sessionId}`);
       
     } catch (error) {
-      // Callback error
-      res.redirect('/#' + new URLSearchParams({
-        error: 'invalid_token'
-      }).toString());
+      // Callback error - log the error
+      console.error('Spotify callback error:', error.message);
+      // Redirect to frontend with error
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
+      res.redirect(`${frontendUrl}/#error=invalid_token`);
     }
   }
 });
