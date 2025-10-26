@@ -528,13 +528,10 @@ export class MusicGuesserComponent implements OnDestroy {
     }
     const res = await this.socketService.joinRoom(this.room(), this.nickname());
     if (res.success) {
-      this.isJoined.set(true);
-      this.isHost.set(res.isHost);
-      this.showMessage(`Joined room '${this.room()}' as ${this.nickname()}.`, false);
       // Reset all relevant client-side signals to their initial states on successful join
       this.gameStarted.set(false);
       this.gameEnded.set(false);
-      this.players.set([]); // Clear players list
+      this.players.set([]); // Clear players list - will be populated by room-update event
       this.chatMessages.set([]); // Clear chat history
       this.scores.set([]);
       this.chatInput = ''; // Clear chat input
@@ -553,6 +550,15 @@ export class MusicGuesserComponent implements OnDestroy {
 
       this.clearTimer(); // Clear main timer
       if (this.spotifyAudioPlayer) this.spotifyAudioPlayer.pause(); // Stop any lingering music
+      
+      // Set joined state - room-update event will populate players list immediately
+      this.isJoined.set(true);
+      this.isHost.set(res.isHost);
+      
+      // Give room-update event time to arrive before showing the UI
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      this.showMessage(`Joined room '${this.room()}' as ${this.nickname()}.`, false);
     } else {
       this.showMessage(res.message || 'Failed to join room.', true);
     }
