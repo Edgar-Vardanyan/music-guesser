@@ -288,11 +288,27 @@
       <!-- Chat Section -->
       <div class="bg-gray-700 p-4 rounded-lg mb-6 border border-gray-600">
         <h3 class="text-lg font-semibold text-white mb-3">💬 Game Chat:</h3>
-        <div class="chat-messages bg-gray-600 h-40 overflow-y-auto p-3 rounded border border-gray-500 mb-3">
+        <div id="chat-display" class="chat-messages bg-gray-600 h-40 overflow-y-auto p-3 rounded border border-gray-500 mb-3">
           @for(message of chatMessages(); track message.timestamp) {
             <div class="mb-2 text-sm">
-              <span class="font-semibold text-blue-400">{{message.nickname}}:</span>
-              <span class="text-gray-300 ml-2">{{message.message}}</span>
+              @if (message.isGuessResult) {
+                <!-- Success message for correct guess -->
+                <div class="bg-green-900 bg-opacity-50 p-2 rounded border border-green-600">
+                  <span class="font-semibold text-green-400">🎉 {{message.guesserNickname}} guessed correctly!</span>
+                  <div class="mt-1 text-xs text-gray-300">
+                    @if (message.titleCorrect) {
+                      <span class="text-green-300">✅ Title: {{message.correctTitle}}</span>
+                    }
+                    @if (message.artistCorrect) {
+                      <span class="text-green-300 ml-2">✅ Artist: {{message.correctArtist}}</span>
+                    }
+                  </div>
+                </div>
+              } @else {
+                <!-- Regular chat message -->
+                <span class="font-semibold text-blue-400">{{message.nickname}}:</span>
+                <span class="text-gray-300 ml-2">{{message.message}}</span>
+              }
             </div>
           }
         </div>
