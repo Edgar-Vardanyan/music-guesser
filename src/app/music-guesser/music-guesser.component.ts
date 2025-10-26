@@ -558,6 +558,43 @@ export class MusicGuesserComponent implements OnDestroy {
     }
   }
 
+  // Handles leaving the room
+  leaveRoom() {
+    this.socketService.leaveRoom();
+    
+    // Reset all state
+    this.isJoined.set(false);
+    this.isHost.set(false);
+    this.gameStarted.set(false);
+    this.gameEnded.set(false);
+    this.players.set([]);
+    this.chatMessages.set([]);
+    this.scores.set([]);
+    this.chatInput = '';
+    this.currentTurnId.set('');
+    this.currentTurnNickname.set('');
+    this.selectedSpotifyTrack.set(null);
+    this.spotifySearchQuery = '';
+    this.spotifySearchResults.set([]);
+    this.turnDuration.set(30);
+    
+    // Reset song revelation displays
+    this._actualTitle = null;
+    this._actualArtist = null;
+    this.revealedTitle.set('');
+    this.revealedArtist.set('');
+    this.clearRevealTimer();
+    this._totalRevealableLetters = 0;
+    this._revealedLetterCount = 0;
+
+    this.clearTimer();
+    if (this.spotifyAudioPlayer) {
+      this.spotifyAudioPlayer.pause();
+      this.spotifyAudioPlayer = null;
+    }
+    
+    this.showMessage('Left the room.', false);
+  }
 
   // Handles starting the game (host only)
   async startGame() {

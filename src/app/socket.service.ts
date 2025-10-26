@@ -96,6 +96,15 @@ export class SocketService {
     });
   }
 
+  // Leaves the current room
+  leaveRoom(): void {
+    if (this.socket && this.socket.connected) {
+      this.socket.disconnect();
+      // Reconnect immediately for potential new room join
+      this.connect();
+    }
+  }
+
   // Listens for 'room-update' events from server
   onRoomUpdate(): Observable<RoomUpdate> {
     return new Observable((observer) => {
