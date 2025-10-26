@@ -182,8 +182,11 @@
         <!-- Submit Button -->
         @if (selectedSpotifyTrack()) {
           <button (click)="submitSpotifyTrack()" 
-                  class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-4 rounded-lg transition duration-300 shadow-lg hover:shadow-xl">
-            Submit Song
+                  [disabled]="!selectedSpotifyTrack()?.preview_url"
+                  [class]="!selectedSpotifyTrack()?.preview_url 
+                    ? 'w-full bg-gray-600 text-gray-400 font-bold py-3 px-4 rounded-lg cursor-not-allowed' 
+                    : 'w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-4 rounded-lg transition duration-300 shadow-lg hover:shadow-xl'">
+            {{ selectedSpotifyTrack()?.preview_url ? 'Submit Song' : 'Preview Required to Submit' }}
           </button>
         }
       </div>
