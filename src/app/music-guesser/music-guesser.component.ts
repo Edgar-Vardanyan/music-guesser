@@ -287,7 +287,117 @@ export class MusicGuesserComponent implements OnDestroy {
         }
       }, 0);
     });
+  }
 
+  // Re-establish socket event subscriptions (needed after reconnection)
+  private resubscribeToSocketEvents(): void {
+    // Subscribe to room updates from the server
+    this.socketService.onRoomUpdate().subscribe((update) => {
+      this.players.set(update.players);
+      this.isHost.set(update.hostId === this.socketService.socket.id);
+      this.gameStarted.set(update.gameStarted);
+      this.gameEnded.set(update.gameEnded);
+    });
+
+    // Subscribe to game started event from the server
+    this.socketService.onGameStarted().subscribe((data) => {
+      this.gameStarted.set(true);
+      this.gameEnded.set(false);
+      this.chatMessages.set([]);
+      this.message.set(null);
+      this.turnDuration.set(data.turnDuration);
+      
+      this._actualTitle = null;
+      this._actualArtist = null;
+      this.revealedTitle.set('');
+      this.revealedArtist.set('');
+      this.clearRevealTimer();
+      this._totalRevealableLetters = 0;
+      this._revealedLetterCount = 0;
+    });
+
+    // Subscribe to turn changed event from the server
+    this.socketService.onTurnChanged().subscribe((data) => {
+      const { currentPlayerId, currentPlayerNickname, songTitle, songArtist, turnEndTime, spotifyTrack } = data;
+
+      if (this._actualTitle !== null || this._actualArtist !== null) { 
+        this.revealedTitle.set(this._actualTitle || 'Unknown Title');
+        this.revealedArtist.set(this._actualArtist || 'Unknown Artist');
+        this.chatMessages.update(messages => [...messages, { nickname: 'System', message: `The previous song was: "${this._actualArtist || 'Unknown Artist'} - ${this._actualTitle || 'Unknown Title'}"`, timestamp: Date.now() }]);
+      }
+      this.clearRevealTimer();
+
+      this.currentTurnNickname.set(currentPlayerNickname);
+      this.currentTurnId.set(currentPlayerId);
+      this.turnEndTime = turnEndTime;
+      this.currentSpotifyTrack.set(spotifyTrack);
+      this._actualTitle = songTitle ? this.cleanSongTitle(songTitle) : null;
+      this._actualArtist = songArtist;
+      this.initializeRevealedDisplay();
+      this.startRevealTimer();
+      this.startTimer();
+      this.message.set(null);
+      this.chatMessages.update(messages => [...messages, { nickname: 'System', message: `It's ${currentPlayerNickname}'s turn!`, timestamp: Date.now() }]);
+
+      if (spotifyTrack && spotifyTrack.preview_url) {
+        this.playSpotifyPreview(spotifyTrack.preview_url);
+      } else {
+        this.showMessage(`No preview available for "${spotifyTrack?.name}". Players will guess based on the song title and artist.`, false);
+        this.chatMessages.update(messages => [...messages, { nickname: 'System', message: `No audio preview available for this song. Guess based on the title and artist!`, timestamp: Date.now() }]);
+      }
+    });
+
+    // Subscribe to show answer event from the server
+    this.socketService.onShowAnswer().subscribe((answerData) => {
+      this.showingAnswer.set(true);
+      this.answerData.set(answerData);
+      
+      if (this.spotifyAudioPlayer) {
+        this.spotifyAudioPlayer.pause();
+      }
+      
+      this.clearTimer();
+      this.clearRevealTimer();
+      
+      this.chatMessages.update(messages => [...messages, { nickname: 'System', message: `🎵 The answer was: "${answerData.songTitle}" by ${answerData.songArtist}`, timestamp: Date.now() }]);
+      
+      setTimeout(() => {
+        this.showingAnswer.set(false);
+        this.answerData.set(null);
+      }, 5000);
+    });
+
+    // Subscribe to game ended event from the server
+    this.socketService.onGameEnded().subscribe(({ scores }) => {
+      this.gameStarted.set(false);
+      this.gameEnded.set(true);
+      this.scores.set(scores);
+      this.clearTimer();
+      this.clearRevealTimer();
+      if (this.spotifyAudioPlayer) {
+        this.spotifyAudioPlayer.pause();
+      }
+      this.showMessage('Game Over! Check final scores and Play Again.', false);
+      this.chatMessages.update(messages => [...messages, { nickname: 'System', message: `Game Over! Final scores are displayed.`, timestamp: Date.now() }]);
+
+      if (this._actualTitle !== null || this._actualArtist !== null) {
+        this.revealedTitle.set(this._actualTitle || 'Unknown Title');
+        this.revealedArtist.set(this._actualArtist || 'Unknown Artist');
+        this.chatMessages.update(messages => [...messages, { nickname: 'System', message: `The final song was: "${this._actualArtist || 'Unknown Artist'} - ${this._actualTitle || 'Unknown Title'}"`, timestamp: Date.now() }]);
+      }
+    });
+
+    // Subscribe to chat messages from the server
+    this.socketService.onChatMessage().subscribe((chatMsg) => {
+      this.chatMessages.update(messages => [...messages, chatMsg]);
+      
+      setTimeout(() => {
+        const chatDisplay = document.getElementById('chat-display');
+        if (chatDisplay) {
+          chatDisplay.scrollTop = chatDisplay.scrollHeight;
+        }
+      }, 0);
+    });
   }
 
   // Lifecycle hook: called when component is destroyed
@@ -526,6 +636,17 @@ export class MusicGuesserComponent implements OnDestroy {
       this.showMessage('Room name and nickname are required to join.', true);
       return;
     }
+    
+    // Reconnect socket if it's disconnected
+    if (!this.socketService.socket.connected) {
+      this.socketService.connect();
+      // Wait for connection to establish
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Re-establish subscriptions after reconnection
+      this.resubscribeToSocketEvents();
+    }
+    
     const res = await this.socketService.joinRoom(this.room(), this.nickname());
     if (res.success) {
       // Reset all relevant client-side signals to their initial states on successful join
