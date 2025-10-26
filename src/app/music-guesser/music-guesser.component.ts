@@ -551,12 +551,12 @@ export class MusicGuesserComponent implements OnDestroy {
       this.clearTimer(); // Clear main timer
       if (this.spotifyAudioPlayer) this.spotifyAudioPlayer.pause(); // Stop any lingering music
       
-      // Set joined state - room-update event will populate players list immediately
-      this.isJoined.set(true);
+      // Set joined state and host status - room-update event will populate players list
       this.isHost.set(res.isHost);
       
-      // Give room-update event time to arrive before showing the UI
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Set joined to true - this will trigger the UI to show
+      // The room-update event from the server will arrive almost immediately
+      this.isJoined.set(true);
       
       this.showMessage(`Joined room '${this.room()}' as ${this.nickname()}.`, false);
     } else {

@@ -96,13 +96,12 @@ export class SocketService {
     });
   }
 
-  // Leaves the current room
+  // Leaves the current room (keeps socket connection alive)
   leaveRoom(): void {
-    if (this.socket && this.socket.connected) {
-      this.socket.disconnect();
-      // Reconnect immediately for potential new room join
-      this.connect();
-    }
+    // Note: We don't actually disconnect or leave the room via Socket.IO
+    // The frontend just resets its state. The backend will handle
+    // removing the player when they reconnect to a different room.
+    // This preserves our event subscriptions.
   }
 
   // Listens for 'room-update' events from server
