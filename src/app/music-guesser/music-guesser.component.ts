@@ -652,7 +652,8 @@ export class MusicGuesserComponent implements OnDestroy {
       // Reset all relevant client-side signals to their initial states on successful join
       this.gameStarted.set(false);
       this.gameEnded.set(false);
-      this.players.set([]); // Clear players list - will be populated by room-update event
+      // Don't clear players list here - it will be populated by room-update event
+      // If we clear it, there will be a gap where UI shows "Waiting..." even though players exist
       this.chatMessages.set([]); // Clear chat history
       this.scores.set([]);
       this.chatInput = ''; // Clear chat input
