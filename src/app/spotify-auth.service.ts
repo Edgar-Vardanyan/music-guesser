@@ -42,6 +42,26 @@ export class SpotifyAuthService {
 
   // Check if there's an existing session from URL or localStorage
   private checkExistingSession(): void {
+    // First check for error in URL hash
+    const hash = window.location.hash;
+    if (hash) {
+      const hashParams = new URLSearchParams(hash.substring(1));
+      const error = hashParams.get('error');
+      if (error) {
+        // Remove error from URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+        // Show error message
+        if (error === 'invalid_token') {
+          alert('Spotify authentication failed. Please try logging in again.');
+        } else if (error === 'state_mismatch') {
+          alert('Spotify authentication security check failed. Please try again.');
+        } else {
+          alert(`Spotify authentication error: ${error}. Please try again.`);
+        }
+        return;
+      }
+    }
+    
     const urlParams = new URLSearchParams(window.location.search);
     const sessionId = urlParams.get('session');
     

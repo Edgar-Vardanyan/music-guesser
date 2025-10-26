@@ -838,8 +838,11 @@ app.get('/auth/callback', async (req, res) => {
       res.redirect(`${frontendUrl}/?session=${sessionId}`);
       
     } catch (error) {
-      // Callback error - log the error
+      // Callback error - log detailed error information
       console.error('Spotify callback error:', error.message);
+      console.error('Full error:', error);
+      console.error('Error stack:', error.stack);
+      
       // Redirect to frontend with error
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
       res.redirect(`${frontendUrl}/#error=invalid_token`);
