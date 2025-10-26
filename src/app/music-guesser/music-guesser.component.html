@@ -10,23 +10,73 @@
   }
 
   @if(!isJoined()) {
-    <div class="w-full max-w-md bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl text-center border border-gray-700">
-      <h1 class="text-3xl sm:text-4xl font-bold text-white mb-6">🎵 Music Guesser</h1>
-      <div class="mb-4 text-left">
-        <label for="roomName" class="block text-gray-300 text-sm font-semibold mb-2">Room:</label>
-        <input id="roomName" [(ngModel)]="room" placeholder="Enter room name" maxlength="20"
-               class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+    <!-- Spotify Login Required -->
+    @if (!spotifyAuth.isAuthenticated()) {
+      <div class="w-full max-w-md bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl text-center border border-gray-700">
+        <h1 class="text-3xl sm:text-4xl font-bold text-white mb-4">🎵 Music Guesser</h1>
+        
+        <div class="mb-6">
+          <div class="bg-green-600 rounded-full p-4 inline-block mb-4">
+            <svg class="w-12 h-12 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.84-.179-.84-.66 0-.362.24-.659.54-.779 4.56-1.341 8.521-.961 11.641 1.32.42.18.479.659.241 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-2.001-8.159-2.58-11.939-1.379-.48.141-1.02-.12-1.141-.66-.12-.48.12-1.02.6-1.14 4.2-1.26 9.6-.66 13.38 1.56.42.241.54.9.362 1.319zm.12-3.36C15.24 8.12 8.82 7.68 5.16 8.88c-.6.18-1.02-.179-1.14-.66-.12-.54.18-1.08.72-1.26 4.08-1.26 11.04-1.02 15.239 1.441.539.3.719 1.02.42 1.56-.3.421-1.02.599-1.559.3z"/>
+            </svg>
+          </div>
+          <h2 class="text-2xl font-bold text-white mb-2">Login with Spotify</h2>
+          <p class="text-gray-300 mb-6">You need to log in with Spotify to play Music Guesser</p>
+          
+          <button (click)="spotifyAuth.login()" 
+                  class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 px-6 rounded-lg transition duration-300 shadow-lg hover:shadow-xl flex items-center justify-center gap-3">
+            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.84-.179-.84-.66 0-.362.24-.659.54-.779 4.56-1.341 8.521-.961 11.641 1.32.42.18.479.659.241 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-2.001-8.159-2.58-11.939-1.379-.48.141-1.02-.12-1.141-.66-.12-.48.12-1.02.6-1.14 4.2-1.26 9.6-.66 13.38 1.56.42.241.54.9.362 1.319zm.12-3.36C15.24 8.12 8.82 7.68 5.16 8.88c-.6.18-1.02-.179-1.14-.66-.12-.54.18-1.08.72-1.26 4.08-1.26 11.04-1.02 15.239 1.441.539.3.719 1.02.42 1.56-.3.421-1.02.599-1.559.3z"/>
+            </svg>
+            Continue with Spotify
+          </button>
+          
+          @if (spotifyAuth.isLoading()) {
+            <div class="mt-4 text-center">
+              <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-green-600"></div>
+              <p class="text-gray-300 text-sm mt-2">Connecting to Spotify...</p>
+            </div>
+          }
+        </div>
       </div>
-      <div class="mb-6 text-left">
-        <label for="nickname" class="block text-gray-300 text-sm font-semibold mb-2">Nickname:</label>
-        <input id="nickname" [(ngModel)]="nickname" placeholder="Enter your nickname" maxlength="20"
-               class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+    }
+    
+    <!-- Room Joining Form (After Spotify Login) -->
+    @if (spotifyAuth.isAuthenticated()) {
+      <div class="w-full max-w-md bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl text-center border border-gray-700">
+        <div class="mb-4 pb-4 border-b border-gray-700">
+          <div class="flex items-center justify-center gap-2 mb-2">
+            <div class="bg-green-600 rounded-full p-2">
+              <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.84-.179-.84-.66 0-.362.24-.659.54-.779 4.56-1.341 8.521-.961 11.641 1.32.42.18.479.659.241 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-2.001-8.159-2.58-11.939-1.379-.48.141-1.02-.12-1.141-.66-.12-.48.12-1.02.6-1.14 4.2-1.26 9.6-.66 13.38 1.56.42.241.54.9.362 1.319zm.12-3.36C15.24 8.12 8.82 7.68 5.16 8.88c-.6.18-1.02-.179-1.14-.66-.12-.54.18-1.08.72-1.26 4.08-1.26 11.04-1.02 15.239 1.441.539.3.719 1.02.42 1.56-.3.421-1.02.599-1.559.3z"/>
+              </svg>
+            </div>
+            <h1 class="text-3xl sm:text-4xl font-bold text-white">🎵 Music Guesser</h1>
+          </div>
+          <p class="text-gray-400 text-sm">Logged in as {{spotifyAuth.currentSession()?.userName}}</p>
+        </div>
+        
+        <div class="mb-4 text-left">
+          <label for="roomName" class="block text-gray-300 text-sm font-semibold mb-2">Room:</label>
+          <input id="roomName" [(ngModel)]="room" placeholder="Enter room name" maxlength="20"
+                 class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+        </div>
+        <div class="mb-6 text-left">
+          <label for="nickname" class="block text-gray-300 text-sm font-semibold mb-2">Nickname:</label>
+          <input id="nickname" [(ngModel)]="nickname" placeholder="Enter your nickname" maxlength="20"
+                 class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+        </div>
+        <button (click)="joinRoom()"
+                class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-4 rounded-lg transition duration-300 shadow-lg hover:shadow-xl">
+          Join Room
+        </button>
+        <button (click)="spotifyAuth.logout()" 
+                class="mt-3 text-gray-400 hover:text-gray-300 text-sm">
+          Logout
+        </button>
       </div>
-      <button (click)="joinRoom()"
-              class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-4 rounded-lg transition duration-300 shadow-lg hover:shadow-xl">
-        Join Room
-      </button>
-    </div>
+    }
   }
 
   @if(isJoined() && !gameStarted() && !gameEnded()) {
@@ -59,52 +109,11 @@
                     <span class="text-red-400 text-sm">❌ Not submitted</span>
                   }
                 </div>
-                @if (player.hasUploaded && player.spotifyTrack) {
-                  <div class="flex items-center gap-2 text-sm text-gray-300">
-                    <span>{{player.spotifyTrack.name}}</span>
-                    <span class="text-gray-400">by</span>
-                    <span>{{getArtistsNames(player.spotifyTrack.artists)}}</span>
-                  </div>
-                }
               </div>
             }
           </div>
         </div>
       }
-
-      <!-- Spotify Authentication Section -->
-      <div class="bg-gradient-to-r from-green-600 to-green-700 rounded-lg shadow-lg p-6 mb-6 border border-green-500">
-        <h3 class="text-xl font-bold text-white mb-4">🎵 Spotify Authentication:</h3>
-        @if (spotifyAuth.isAuthenticated()) {
-          <div class="flex items-center justify-between">
-            <div class="text-white">
-              <p class="font-semibold">✅ Connected to Spotify</p>
-              <p class="text-sm opacity-90">Welcome, {{spotifyAuth.currentSession()?.userName}}!</p>
-            </div>
-            <button (click)="spotifyAuth.logout()" 
-                    class="bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-lg transition duration-300 shadow-md">
-              Logout
-            </button>
-          </div>
-        } @else {
-          <div class="flex items-center justify-between">
-            <div class="text-white">
-              <p class="font-semibold">🔒 Not connected to Spotify</p>
-              <p class="text-sm opacity-90">Login required to search songs and play previews</p>
-            </div>
-            <button (click)="spotifyAuth.login()" 
-                    class="bg-white hover:bg-gray-100 text-green-600 font-bold py-2 px-4 rounded-lg transition duration-300 shadow-md">
-              Login with Spotify
-            </button>
-          </div>
-        }
-        @if (spotifyAuth.isLoading()) {
-          <div class="mt-4 text-center">
-            <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
-            <p class="text-white text-sm mt-2">Authenticating...</p>
-          </div>
-        }
-      </div>
 
       <!-- Song Selection Section (Available to ALL players) -->
       <div class="song-selection bg-gray-700 p-6 rounded-lg shadow-lg mb-6 border border-gray-600">
@@ -294,13 +303,16 @@
               @if (message.isGuessResult) {
                 <!-- Success message for correct guess -->
                 <div class="bg-green-900 bg-opacity-50 p-2 rounded border border-green-600">
-                  <span class="font-semibold text-green-400">🎉 {{message.guesserNickname}} guessed correctly!</span>
-                  <div class="mt-1 text-xs text-gray-300">
-                    @if (message.titleCorrect) {
-                      <span class="text-green-300">✅ Title: {{message.correctTitle}}</span>
-                    }
-                    @if (message.artistCorrect) {
-                      <span class="text-green-300 ml-2">✅ Artist: {{message.correctArtist}}</span>
+                  <span class="font-semibold text-green-400">
+                    🎉 {{message.guesserNickname}} guessed correctly!
+                  </span>
+                  <div class="mt-1 text-xs text-green-300">
+                    @if (message.titleCorrect && message.artistCorrect) {
+                      (Title & Artist)
+                    } @else if (message.titleCorrect) {
+                      (Title)
+                    } @else if (message.artistCorrect) {
+                      (Artist)
                     }
                   </div>
                 </div>
